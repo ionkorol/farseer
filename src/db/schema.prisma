@@ -1,0 +1,136 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "./generated/client"
+  runtime  = "bun"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Search request - tracks pending/completed async searches
+model SearchRequest {
+  id String @id @default(cuid())
+
+  // Search parameters
+  origin          String
+  destination     String
+  checkIn         DateTime
+  checkOut        DateTime
+  rooms           Int
+  adultsPerRoom   String // JSON array: [2,2]
+  childrenPerRoom String // JSON array: [0,0]
+  childAges       String // JSON array: [[],[]]
+
+  // Status tracking
+  status   String // "pending" | "in_progress" | "completed" | "failed"
+  progress String? // Progress message (e.g., "Searching vendor 2 of 5...")
+  error    String? // Error message if failed
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  searchCacheId String?      @unique
+  searchCache   SearchCache? @relation(fields: [searchCacheId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Search cache entry - stores unique search parameter combinations
+model SearchCache {
+  id       String @id @default(cuid())
+  cacheKey String @unique // Sanitized search params (origin_destination_checkIn_checkOut_rooms_adults)
+
+  // Search parameters
+  origin          String
+  destination     String
+  checkIn         DateTime
+  checkOut        DateTime
+  rooms           Int
+  adultsPerRoom   String // JSON array: [2,2]
+  childrenPerRoom String // JSON array: [0,0]
+  childAges       String // JSON array: [[],[]]
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  hotels        Hotel[]
+  searchRequest SearchRequest?
+
+  @@index([cacheKey])
+  @@index([origin, destination, checkIn])
+}
+
+// Hotel entry - stores individual hotel results
+model Hotel {
+  id String @id @default(cuid())
+
+  // Hotel identification
+  hotelId         String
+  name            String
+  vendor          String
+  remoteSource    String
+  destinationCode String
+
+  // Hotel details
+  rating              Float
+  tripAdvisorRating   Float?
+  tripAdvisorReviews  Int?
+  location            String
+  distanceFromAirport Float?
+  cleaningBadge       String?
+
+  // Search parameters (denormalized for easier querying)
+  checkIn  DateTime
+  checkOut DateTime
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  searchCacheId String
+  searchCache   SearchCache @relation(fields: [searchCacheId], references: [id], onDelete: Cascade)
+  rooms         Room[]
+
+  @@index([hotelId, vendor])
+  @@index([searchCacheId])
+  @@index([rating])
+  @@index([name])
+}
+
+// Room option - stores individual room types and pricing
+model Room {
+  id String @id @default(cuid())
+
+  // Room identification
+  code String
+  name String
+
+  // Pricing
+  totalPrice     Float
+  pricePerPerson Float?
+
+  // Additional features
+  addedValues     String // JSON array: ["$150 Food & Beverage credit"]
+  valueIndicators String // JSON array: ["Upgrade Bonus $ Available"]
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  hotelId String
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@index([hotelId])
+  @@index([totalPrice])
+}

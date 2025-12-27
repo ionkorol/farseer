@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.DS_Store
+.sessions/
+.responses/
+
+# Prisma
+src/db/generated
+*.db
+*.db-journal

@@ -1,0 +1,54 @@
+[
+  {
+    "code": "APV",
+    "name": "Apple Vacations"
+  },
+  {
+    "code": "BLU",
+    "name": "Blue Sky Tours"
+  },
+  {
+    "code": "EXV",
+    "name": "Travel + Leisure GO"
+  },
+  {
+    "code": "FJ1",
+    "name": "Funjet Vacations"
+  },
+  {
+    "code": "SW5",
+    "name": "SeaWorld Vacations"
+  },
+  {
+    "code": "SW6",
+    "name": "Busch Gardens Vacations"
+  },
+  {
+    "code": "SW7",
+    "name": "Sesame Place Vacations"
+  },
+  {
+    "code": "SW8",
+    "name": "Discovery Cove Vacations"
+  },
+  {
+    "code": "TIV",
+    "name": "Travel Impressions"
+  },
+  {
+    "code": "UAV",
+    "name": "United Vacations"
+  },
+  {
+    "code": "UNH",
+    "name": "Universal Parks and Resorts-Hollywood,CA"
+  },
+  {
+    "code": "UNT",
+    "name": "Universal Parks and Resorts-Orlando,FL"
+  },
+  {
+    "code": "WNT",
+    "name": "NO NEW BOOKINGS - Southwest Vacations"
+  }
+]
