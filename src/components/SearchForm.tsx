@@ -33,7 +33,9 @@ export function SearchForm() {
     queryKey: ["destinations", selectedVendor, selectedOrigin?.code],
     queryFn: async () => {
       if (!selectedOrigin) return [];
-      const res = await fetch(`/api/destinations?vendorCode=${selectedVendor}&packageCode=AH&originCode=${selectedOrigin.code}`);
+      const res = await fetch(
+        `/api/destinations?vendorCode=${selectedVendor}&packageCode=AH&originCode=${selectedOrigin.code}`,
+      );
       if (!res.ok) {
         throw new Error("Failed to fetch destinations");
       }
@@ -60,13 +62,15 @@ export function SearchForm() {
   const filteredOrigins = origins.filter(
     (origin) =>
       originSearch.length >= 2 &&
-      (origin.description.toLowerCase().includes(originSearch.toLowerCase()) || origin.code.toLowerCase().includes(originSearch.toLowerCase()))
+      (origin.description.toLowerCase().includes(originSearch.toLowerCase()) ||
+        origin.code.toLowerCase().includes(originSearch.toLowerCase())),
   );
 
   const filteredDestinations = destinations.filter(
     (dest) =>
       destinationSearch.length >= 2 &&
-      (dest.description.toLowerCase().includes(destinationSearch.toLowerCase()) || dest.code.toLowerCase().includes(destinationSearch.toLowerCase()))
+      (dest.description.toLowerCase().includes(destinationSearch.toLowerCase()) ||
+        dest.code.toLowerCase().includes(destinationSearch.toLowerCase())),
   );
 
   const handleOriginSelect = (origin: VaxMarket) => {
@@ -102,7 +106,7 @@ export function SearchForm() {
     try {
       // Create search request via API
       const response = await fetch(
-        `/api/search?origin=${selectedOrigin.code}&destination=${selectedDestination.code}&checkIn=${checkIn}&checkOut=${checkOut}&adults=${adults}`
+        `/api/search?origin=${selectedOrigin.code}&destination=${selectedDestination.code}&checkIn=${checkIn}&checkOut=${checkOut}&adults=${adults}`,
       );
 
       if (!response.ok) {
@@ -148,9 +152,7 @@ export function SearchForm() {
                 {showOriginDropdown && originSearch.length >= 2 && (
                   <div className="search-form-dropdown">
                     {origins.length === 0 ? (
-                      <div className="search-form-empty-message">
-                        Please select a vendor first
-                      </div>
+                      <div className="search-form-empty-message">Please select a vendor first</div>
                     ) : filteredOrigins.length === 0 ? (
                       <div className="search-form-empty-message">No matches found</div>
                     ) : (
@@ -186,9 +188,7 @@ export function SearchForm() {
                 {showDestinationDropdown && destinationSearch.length >= 2 && (
                   <div className="search-form-dropdown">
                     {destinations.length === 0 ? (
-                      <div className="search-form-empty-message">
-                        Please select an origin first
-                      </div>
+                      <div className="search-form-empty-message">Please select an origin first</div>
                     ) : filteredDestinations.length === 0 ? (
                       <div className="search-form-empty-message">No matches found</div>
                     ) : (
@@ -242,14 +242,9 @@ export function SearchForm() {
               </div>
             </div>
 
-            {error && (
-              <div className="search-form-error">{error}</div>
-            )}
+            {error && <div className="search-form-error">{error}</div>}
 
-            <button
-              type="submit"
-              className="search-form-submit-button"
-            >
+            <button type="submit" className="search-form-submit-button">
               🔍 Search Vacations
             </button>
           </form>

@@ -6,7 +6,9 @@ import type { VaxHotelResult, VaxSearchParams, VaxRoomOption } from "../clients/
  * Format: origin_destination_checkIn_checkOut_rooms_adults
  * Example: ATL_LAS_2026-01-10_2026-01-17_1_2
  */
-export function generateSearchCacheKey(params: Omit<VaxSearchParams, "vendor" | "packageType">): string {
+export function generateSearchCacheKey(
+  params: Omit<VaxSearchParams, "vendor" | "packageType">,
+): string {
   const sanitize = (str: string) => str.replace(/[^a-zA-Z0-9]/g, "_");
 
   const parts = [
@@ -33,7 +35,7 @@ export function generateSearchCacheKey(params: Omit<VaxSearchParams, "vendor" | 
  * Get cached search results from database
  */
 export async function getCachedSearchResults(
-  params: Omit<VaxSearchParams, "vendor" | "packageType">
+  params: Omit<VaxSearchParams, "vendor" | "packageType">,
 ): Promise<VaxHotelResult[] | null> {
   try {
     const cacheKey = generateSearchCacheKey(params);
@@ -113,7 +115,7 @@ export async function getCachedSearchResults(
  */
 export async function saveSearchResultsToCache(
   params: Omit<VaxSearchParams, "vendor" | "packageType">,
-  hotels: VaxHotelResult[]
+  hotels: VaxHotelResult[],
 ): Promise<void> {
   try {
     const cacheKey = generateSearchCacheKey(params);

@@ -2,8 +2,11 @@ import type { AxiosInstance } from "axios";
 import { createBaseClient, CookieJar } from "../baseClient.js";
 import { createSessionStorage, type SessionStorage } from "../../utils/sessionStorage.js";
 import { ResponseStorage } from "../../utils/responseStorage.js";
-import { config } from "../../config/env.js";
-import { getAspNetFormScriptManagerField, parseAspNetFormHiddenInputs } from "../../utils/aspnet-form.utils.js";
+import { config } from "../../utils/settings.js";
+import {
+  getAspNetFormScriptManagerField,
+  parseAspNetFormHiddenInputs,
+} from "../../utils/aspnet-form.utils.js";
 import { getCachedSearchResults, saveSearchResultsToCache } from "../../lib/searchCache.js";
 import * as cheerio from "cheerio";
 import type {
@@ -58,7 +61,8 @@ export class VaxClient {
         "sec-fetch-site": "same-origin",
         "sec-fetch-user": "?1",
         "upgrade-insecure-requests": "1",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
       },
       timeout: 300_000,
     });
@@ -118,7 +122,7 @@ export class VaxClient {
         arcNumber: this.session.arcNumber,
         username: this.session.username,
       },
-      this.sessionTTL
+      this.sessionTTL,
     );
   }
 
@@ -172,7 +176,7 @@ export class VaxClient {
    */
   private buildLoginFormData(
     credentials: VaxLoginCredentials,
-    tokens: { viewState: string; viewStateGenerator: string; eventValidation: string }
+    tokens: { viewState: string; viewStateGenerator: string; eventValidation: string },
   ): URLSearchParams {
     const formData: VaxLoginFormData = {
       ctl00_ContentPlaceHolder_sm_HiddenField:
@@ -330,7 +334,6 @@ export class VaxClient {
     this.cookieJar.clear();
   }
 
-
   async search(params: VaxSearchParams): Promise<VaxSearchResponse> {
     if (!this.isLoggedIn()) {
       return {
@@ -343,7 +346,9 @@ export class VaxClient {
     try {
       const searchUrl = "https://new.www.vaxvacationaccess.com/Search/Default.aspx";
 
-      let searchGetHtml = await this.responseStorage?.readResponse(`vax_search_get_${params.vendor}`);
+      let searchGetHtml = await this.responseStorage?.readResponse(
+        `vax_search_get_${params.vendor}`,
+      );
       if (!searchGetHtml) {
         const searchGetResponse = await this.client.get<string>(searchUrl, {
           headers: {
@@ -362,7 +367,8 @@ export class VaxClient {
 
       const formHiddenValues = parseAspNetFormHiddenInputs(searchGetHtml, "aspnetForm");
       const smField = getAspNetFormScriptManagerField(searchGetHtml);
-      const formatContentPlaceholderKey = (key: string) => `ctl00$ctl00$ContentPlaceHolder$ContentPlaceHolder$${key}`;
+      const formatContentPlaceholderKey = (key: string) =>
+        `ctl00$ctl00$ContentPlaceHolder$ContentPlaceHolder$${key}`;
       const formatSearchComponentsKey = (key: string) =>
         `ctl00$ctl00$ContentPlaceHolder$ContentPlaceHolder$scncc$ctl00$NavigationRepeater$ctl00$ctl00$SearchComponents$scc$rt$${key}`;
 
@@ -384,9 +390,13 @@ export class VaxClient {
         [formatSearchComponentsKey("passengers$pr$ctl00$pi$children")]: 0,
         [formatSearchComponentsKey("passengers$pr$ctl00$pi$cr$ctl01$ChildAgeInput")]: "",
         [formatSearchComponentsKey("passengers$pr$ctl00$pi$cr$ctl01$ChildDOBInput")]: "",
-        [formatSearchComponentsKey("passengers$pr$ctl00$pi$cr$ctl01$DateDropDownComponentDisplay$MonthDropDown")]: "",
+        [formatSearchComponentsKey(
+          "passengers$pr$ctl00$pi$cr$ctl01$DateDropDownComponentDisplay$MonthDropDown",
+        )]: "",
         [formatSearchComponentsKey("passengers$pr$ctl00$pi$cr$ctl01$ChildDOBInput")]: "",
-        [formatSearchComponentsKey("passengers$pr$ctl00$pi$cr$ctl01$DateDropDownComponentDisplay$YearDropDown")]: "",
+        [formatSearchComponentsKey(
+          "passengers$pr$ctl00$pi$cr$ctl01$DateDropDownComponentDisplay$YearDropDown",
+        )]: "",
         [formatSearchComponentsKey("promocode")]: "",
         [formatSearchComponentsKey("aircarrier")]: "~",
         [formatSearchComponentsKey("aircabin")]: "Y",
@@ -405,7 +415,9 @@ export class VaxClient {
         __ASYNCPOST: false,
       };
 
-      let searchPostHtml = await this.responseStorage?.readResponse(`vax_search_post_${params.vendor}`);
+      let searchPostHtml = await this.responseStorage?.readResponse(
+        `vax_search_post_${params.vendor}`,
+      );
       if (!searchPostHtml) {
         const searchPostResponse = await this.client.post<string>(searchUrl, body, {
           headers: {
@@ -416,7 +428,10 @@ export class VaxClient {
           },
         });
         searchPostHtml = searchPostResponse.data;
-        await this.responseStorage?.saveResponse(`vax_search_post_${params.vendor}`, searchPostHtml);
+        await this.responseStorage?.saveResponse(
+          `vax_search_post_${params.vendor}`,
+          searchPostHtml,
+        );
       }
 
       const hotels = await this.parseSearchHtml(searchPostHtml);
@@ -476,7 +491,11 @@ export class VaxClient {
    * Parse a single hotel section from the HTML using Cheerio
    * $hotelRow is the <tr> with class 'room-repeater-visibility'
    */
-  private parseHotelSection($hotelRow: cheerio.Cheerio<any>, checkIn: string, checkOut: string): VaxHotelResult | null {
+  private parseHotelSection(
+    $hotelRow: cheerio.Cheerio<any>,
+    checkIn: string,
+    checkOut: string,
+  ): VaxHotelResult | null {
     try {
       // Find the hotel-info-wrapper within this row
       const $hotelInfo = $hotelRow.find(".hotel-info-wrapper");
@@ -740,7 +759,7 @@ export class VaxClient {
 
     // Find the vendor select element by its specific ID
     const vendorSelect = $(
-      "#ctl00_ctl00_ContentPlaceHolder_ContentPlaceHolder_scncc_ctl00_NavigationRepeater_ctl00_ctl00_SearchComponents_scc_rt_vendor"
+      "#ctl00_ctl00_ContentPlaceHolder_ContentPlaceHolder_scncc_ctl00_NavigationRepeater_ctl00_ctl00_SearchComponents_scc_rt_vendor",
     );
 
     if (!vendorSelect.length) {
@@ -788,7 +807,9 @@ export class VaxClient {
     return markets[vendorCode] || [];
   }
 
-  async searchAllVendors(params: Omit<VaxSearchParams, "vendor" | "packageType">): Promise<VaxSearchResponse> {
+  async searchAllVendors(
+    params: Omit<VaxSearchParams, "vendor" | "packageType">,
+  ): Promise<VaxSearchResponse> {
     await this.ensureLoggedIn();
 
     try {
@@ -819,7 +840,9 @@ export class VaxClient {
 
           const searchResponse = await this.search(vendorParams);
           if (!searchResponse.success) {
-            console.log(`  ⚠ Search failed for ${vendor.name}: ${searchResponse.error || "Unknown error"}`);
+            console.log(
+              `  ⚠ Search failed for ${vendor.name}: ${searchResponse.error || "Unknown error"}`,
+            );
             continue;
           }
 
@@ -838,7 +861,9 @@ export class VaxClient {
         }
       }
 
-      console.log(`\n✅ Search complete! Found ${allHotels.length} total hotels across ${vendors.length} vendors`);
+      console.log(
+        `\n✅ Search complete! Found ${allHotels.length} total hotels across ${vendors.length} vendors`,
+      );
 
       // Save aggregated results to database cache
       await saveSearchResultsToCache(params, allHotels);
@@ -853,7 +878,10 @@ export class VaxClient {
       return {
         success: false,
         hotels: [],
-        error: error instanceof Error ? error.message : "Unknown error occurred during multi-vendor search",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown error occurred during multi-vendor search",
       };
     }
   }
@@ -871,12 +899,19 @@ export class VaxClient {
     return response.data;
   }
 
-  async getOriginMarkets(vendorCode: string, packageCode: string, destinationCode = "", filterOrgs = "", plCode = ""): Promise<VaxMarket[]> {
+  async getOriginMarkets(
+    vendorCode: string,
+    packageCode: string,
+    destinationCode = "",
+    filterOrgs = "",
+    plCode = "",
+  ): Promise<VaxMarket[]> {
     if (!this.isLoggedIn()) {
       throw new Error("Not logged in. Please call login() first.");
     }
 
-    const url = "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetOriginMarkets";
+    const url =
+      "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetOriginMarkets";
 
     // Build query string manually to ensure all params are included
     const params = new URLSearchParams();
@@ -915,14 +950,15 @@ export class VaxClient {
     specialId: string | null = null,
     filterDests = "",
     plCode = "",
-    supplierCode = ""
+    supplierCode = "",
   ): Promise<VaxMarket[]> {
     if (!this.isLoggedIn()) {
       throw new Error("Not logged in. Please call login() first.");
     }
 
     try {
-      const url = "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetDestinationMarkets";
+      const url =
+        "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetDestinationMarkets";
 
       // Build query string manually to ensure null values are preserved
       const params = new URLSearchParams();

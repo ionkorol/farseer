@@ -10,6 +10,7 @@ This skill converts cURL commands into TypeScript axios-based API client functio
 ## Usage
 
 When invoked, this skill:
+
 1. Accepts one or more cURL commands as input
 2. Parses the request details (method, headers, body, query parameters)
 3. Generates a typed TypeScript function using axios
@@ -45,7 +46,7 @@ The skill generates:
 ```typescript
 // src/clients/exampleApi.ts
 
-import axios, { AxiosRequestConfig } from 'axios';
+import axios, { AxiosRequestConfig } from "axios";
 
 interface SearchRequest {
   destination: string;
@@ -65,16 +66,13 @@ interface Deal {
   // ... other fields
 }
 
-export async function searchDeals(
-  params: SearchRequest,
-  apiKey?: string
-): Promise<SearchResponse> {
+export async function searchDeals(params: SearchRequest, apiKey?: string): Promise<SearchResponse> {
   const config: AxiosRequestConfig = {
-    method: 'POST',
-    url: 'https://api.example.com/v1/search',
+    method: "POST",
+    url: "https://api.example.com/v1/search",
     headers: {
-      'Authorization': `Bearer ${apiKey || process.env.EXAMPLE_API_KEY}`,
-      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey || process.env.EXAMPLE_API_KEY}`,
+      "Content-Type": "application/json",
     },
     data: params,
   };
@@ -96,6 +94,7 @@ export async function searchDeals(
 ## Environment Setup
 
 After generating API clients, ensure:
+
 1. Add the required API keys to your `.env` file
 2. Update TypeScript response interfaces based on actual API responses
 3. Add rate limiting if needed
@@ -104,6 +103,7 @@ After generating API clients, ensure:
 ## Playwright Integration Note
 
 While this skill focuses on API integration, for websites without APIs, use Playwright to:
+
 1. Navigate to the website in headless mode
 2. Interact with search forms and filters
 3. Extract deal data from the DOM

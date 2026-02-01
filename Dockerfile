@@ -19,7 +19,7 @@ COPY --from=install /temp/prod/node_modules node_modules
 COPY . .
 
 # Generate Prisma Client
-RUN bun run db:generate
+RUN bun run db:gen
 
 # Expose port
 EXPOSE 3000

@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { config } from "../config/env.js";
+import { config } from "../utils/settings.js";
 import { ResponseStorage } from "../utils/responseStorage.js";
 
 /**
@@ -113,16 +113,26 @@ class VaxPlaywrightDebugger {
     });
 
     // Check for ViewState
-    const viewState = await this.page.$eval('input[name="__VIEWSTATE"]', (el) => (el as HTMLInputElement).value).catch(() => null);
+    const viewState = await this.page
+      .$eval('input[name="__VIEWSTATE"]', (el) => (el as HTMLInputElement).value)
+      .catch(() => null);
 
-    const viewStateGenerator = await this.page.$eval('input[name="__VIEWSTATEGENERATOR"]', (el) => (el as HTMLInputElement).value).catch(() => null);
+    const viewStateGenerator = await this.page
+      .$eval('input[name="__VIEWSTATEGENERATOR"]', (el) => (el as HTMLInputElement).value)
+      .catch(() => null);
 
-    const eventValidation = await this.page.$eval('input[name="__EVENTVALIDATION"]', (el) => (el as HTMLInputElement).value).catch(() => null);
+    const eventValidation = await this.page
+      .$eval('input[name="__EVENTVALIDATION"]', (el) => (el as HTMLInputElement).value)
+      .catch(() => null);
 
     console.log("\nASP.NET ViewState tokens:");
-    console.log(`  __VIEWSTATE: ${viewState ? "Found (" + viewState.length + " chars)" : "Not found"}`);
+    console.log(
+      `  __VIEWSTATE: ${viewState ? "Found (" + viewState.length + " chars)" : "Not found"}`,
+    );
     console.log(`  __VIEWSTATEGENERATOR: ${viewStateGenerator || "Not found"}`);
-    console.log(`  __EVENTVALIDATION: ${eventValidation ? "Found (" + eventValidation.length + " chars)" : "Not found"}`);
+    console.log(
+      `  __EVENTVALIDATION: ${eventValidation ? "Found (" + eventValidation.length + " chars)" : "Not found"}`,
+    );
   }
 
   async debugLogin(): Promise<void> {
@@ -141,9 +151,18 @@ class VaxPlaywrightDebugger {
     console.log(`Logging in as: ${credentials.username} (ARC: ${credentials.arc})`);
 
     // Fill in the form
-    await this.page.fill('input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Arc"]', credentials.arc);
-    await this.page.fill('input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$UserName"]', credentials.username);
-    await this.page.fill('input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Password"]', credentials.password);
+    await this.page.fill(
+      'input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Arc"]',
+      credentials.arc,
+    );
+    await this.page.fill(
+      'input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$UserName"]',
+      credentials.username,
+    );
+    await this.page.fill(
+      'input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Password"]',
+      credentials.password,
+    );
 
     console.log("✓ Form filled");
 
@@ -152,7 +171,9 @@ class VaxPlaywrightDebugger {
 
     // Click login button
     console.log("Clicking login button...");
-    await this.page.click('input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$LoginButton"]');
+    await this.page.click(
+      'input[name="ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$LoginButton"]',
+    );
 
     // Wait for navigation or response
     try {
@@ -202,7 +223,8 @@ class VaxPlaywrightDebugger {
     console.log("STEP 3: Testing Search Flow");
     console.log("=".repeat(60));
 
-    const searchUrl = "https://new.www.vaxvacationaccess.com/Search/ContentIFrameRestoolVAX.aspx?AnchorStore=none";
+    const searchUrl =
+      "https://new.www.vaxvacationaccess.com/Search/ContentIFrameRestoolVAX.aspx?AnchorStore=none";
     console.log(`Navigating to: ${searchUrl}`);
 
     try {
@@ -234,7 +256,9 @@ class VaxPlaywrightDebugger {
       const packageTypeSelect = await this.page.$('select[name*="package"]');
       if (packageTypeSelect) {
         console.log("✓ Package type selector found");
-        const options = await packageTypeSelect.$$eval("option", (opts) => opts.map((opt) => ({ value: opt.value, text: opt.textContent })));
+        const options = await packageTypeSelect.$$eval("option", (opts) =>
+          opts.map((opt) => ({ value: opt.value, text: opt.textContent })),
+        );
         console.log("  Options:", options);
       } else {
         console.log("✗ Package type selector not found");

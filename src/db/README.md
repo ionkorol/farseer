@@ -9,9 +9,11 @@ The application uses Prisma with SQLite to replace file-based search result cach
 ## Database Schema
 
 ### SearchCache Table
+
 Stores unique search parameter combinations and serves as the parent for hotel results.
 
 **Fields:**
+
 - `id` - Unique identifier (CUID)
 - `cacheKey` - Unique sanitized search parameters (e.g., `ATL_LAS_2026-01-10_2026-01-17_1_2`)
 - `origin` - Origin location code
@@ -26,13 +28,16 @@ Stores unique search parameter combinations and serves as the parent for hotel r
 - `updatedAt` - Last update timestamp
 
 **Indexes:**
+
 - Unique index on `cacheKey`
 - Composite index on `origin`, `destination`, `checkIn`
 
 ### Hotel Table
+
 Stores individual hotel results linked to search queries.
 
 **Fields:**
+
 - `id` - Unique identifier (CUID)
 - `hotelId` - Hotel identifier from VAX
 - `name` - Hotel name
@@ -52,19 +57,23 @@ Stores individual hotel results linked to search queries.
 - `updatedAt` - Last update timestamp
 
 **Indexes:**
+
 - Composite index on `hotelId`, `vendor`
 - Index on `searchCacheId`
 - Index on `rating`
 - Index on `name`
 
 **Relations:**
+
 - Belongs to one `SearchCache` (cascade delete)
 - Has many `Room` entries
 
 ### Room Table
+
 Stores individual room options for each hotel.
 
 **Fields:**
+
 - `id` - Unique identifier (CUID)
 - `code` - Room type code
 - `name` - Room description (e.g., "Bleau King")
@@ -77,35 +86,42 @@ Stores individual room options for each hotel.
 - `updatedAt` - Last update timestamp
 
 **Indexes:**
+
 - Index on `hotelId`
 - Index on `totalPrice`
 
 **Relations:**
+
 - Belongs to one `Hotel` (cascade delete)
 
 ## Commands
 
 ### Generate Prisma Client
+
 ```bash
 bunx prisma generate
 ```
 
 ### Create Migration
+
 ```bash
 bunx prisma migrate dev --name migration_name
 ```
 
 ### Apply Migrations
+
 ```bash
 bunx prisma migrate deploy
 ```
 
 ### Reset Database
+
 ```bash
 bunx prisma migrate reset
 ```
 
 ### Open Prisma Studio (GUI)
+
 ```bash
 bunx prisma studio
 ```
@@ -113,6 +129,7 @@ bunx prisma studio
 ## Usage in Code
 
 ### Database Client
+
 The Prisma client is initialized as a singleton in [src/lib/db.ts](../src/lib/db.ts):
 
 ```typescript
@@ -123,6 +140,7 @@ const hotels = await prisma.hotel.findMany();
 ```
 
 ### Search Cache Helpers
+
 Helper functions are available in [src/lib/searchCache.ts](../src/lib/searchCache.ts):
 
 ```typescript
@@ -138,6 +156,7 @@ await saveSearchResultsToCache(params, hotels);
 ## Cache Management
 
 ### Automatic Cleanup
+
 Old cache entries can be cleaned up using the `clearOldCacheEntries` function:
 
 ```typescript
@@ -148,6 +167,7 @@ const count = await clearOldCacheEntries(7);
 ```
 
 ### Manual Cleanup
+
 You can also manually delete cache entries using Prisma:
 
 ```typescript
@@ -155,7 +175,7 @@ import { prisma } from "../lib/db.js";
 
 // Delete by cache key
 await prisma.searchCache.delete({
-  where: { cacheKey: "ATL_LAS_2026-01-10_2026-01-17_1_2" }
+  where: { cacheKey: "ATL_LAS_2026-01-10_2026-01-17_1_2" },
 });
 
 // Delete all cache entries
@@ -167,11 +187,13 @@ await prisma.searchCache.deleteMany();
 The previous file-based cache (`src/clients/vax/search_*.json`) has been replaced with database storage. The old file-based methods have been removed from VaxClient:
 
 **Removed methods:**
+
 - `generateSearchCacheKey()` - now in `searchCache.ts`
 - `getCachedSearchResults()` - replaced with database version
 - `saveSearchResultsToCache()` - replaced with database version
 
 **Migration steps:**
+
 1. Old file-based cache files are gitignored and can be safely deleted
 2. The database will be populated automatically as new searches are performed
 3. No manual data migration is needed
@@ -186,6 +208,7 @@ The previous file-based cache (`src/clients/vax/search_*.json`) has been replace
 ## Database File Location
 
 The SQLite database file is located at:
+
 ```
 ./dev.db
 ```

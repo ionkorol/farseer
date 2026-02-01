@@ -11,10 +11,12 @@ export function createBaseClient(config?: BaseClientConfig): AxiosInstance {
   const defaultConfig: AxiosRequestConfig = {
     timeout: 30000,
     headers: {
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
       "Cache-Control": "no-cache",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     },
     ...config,
   };
@@ -30,14 +32,16 @@ export function createBaseClient(config?: BaseClientConfig): AxiosInstance {
     },
     (error) => {
       return Promise.reject(error);
-    }
+    },
   );
 
   // Response interceptor for logging/error handling
   client.interceptors.response.use(
     (response: AxiosResponse) => {
       const duration = Date.now() - (response.config as any).metadata?.startTime;
-      console.log(`[${response.config.method?.toUpperCase()}] ${response.config.url} - ${response.status} (${duration}ms)`);
+      console.log(
+        `[${response.config.method?.toUpperCase()}] ${response.config.url} - ${response.status} (${duration}ms)`,
+      );
       return response;
     },
     (error) => {
@@ -49,7 +53,7 @@ export function createBaseClient(config?: BaseClientConfig): AxiosInstance {
         console.error(`[ERROR] Request setup failed: ${error.message}`);
       }
       return Promise.reject(error);
-    }
+    },
   );
 
   return client;

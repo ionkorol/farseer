@@ -1,6 +1,6 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +28,7 @@ export class SessionStorage {
 
   constructor(storageDir?: string) {
     // Default to .sessions directory in project root
-    this.storageDir = storageDir || path.join(__dirname, '../../.sessions');
+    this.storageDir = storageDir || path.join(__dirname, "../../.sessions");
   }
 
   /**
@@ -47,7 +47,7 @@ export class SessionStorage {
    */
   private getSessionPath(sessionId: string): string {
     // Sanitize session ID to prevent directory traversal
-    const sanitized = sessionId.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const sanitized = sessionId.replace(/[^a-zA-Z0-9-_]/g, "_");
     return path.join(this.storageDir, `${sanitized}.json`);
   }
 
@@ -60,7 +60,7 @@ export class SessionStorage {
   async saveSession(
     sessionId: string,
     data: Record<string, any>,
-    ttl: number = 24 * 60 * 60 * 1000
+    ttl: number = 24 * 60 * 60 * 1000,
   ): Promise<void> {
     await this.ensureStorageDir();
 
@@ -68,13 +68,15 @@ export class SessionStorage {
       id: sessionId,
       data,
       createdAt: Date.now(),
-      expiresAt: Date.now() + ttl
+      expiresAt: Date.now() + ttl,
     };
 
     const sessionPath = this.getSessionPath(sessionId);
-    await fs.writeFile(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
+    await fs.writeFile(sessionPath, JSON.stringify(session, null, 2), "utf-8");
 
-    console.log(`💾 Session saved: ${sessionId} (expires in ${Math.round(ttl / 1000 / 60)} minutes)`);
+    console.log(
+      `💾 Session saved: ${sessionId} (expires in ${Math.round(ttl / 1000 / 60)} minutes)`,
+    );
   }
 
   /**
@@ -85,7 +87,7 @@ export class SessionStorage {
   async loadSession(sessionId: string): Promise<Record<string, any> | null> {
     try {
       const sessionPath = this.getSessionPath(sessionId);
-      const content = await fs.readFile(sessionPath, 'utf-8');
+      const content = await fs.readFile(sessionPath, "utf-8");
       const session: StoredSession = JSON.parse(content);
 
       // Check if session has expired
@@ -98,9 +100,8 @@ export class SessionStorage {
       const remainingTime = Math.round((session.expiresAt - Date.now()) / 1000 / 60);
       console.log(`✓ Session loaded: ${sessionId} (${remainingTime} minutes remaining)`);
       return session.data;
-
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         // Session file doesn't exist
         return null;
       }
@@ -119,7 +120,7 @@ export class SessionStorage {
       await fs.unlink(sessionPath);
       console.log(`🗑️  Session deleted: ${sessionId}`);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         console.error(`Error deleting session ${sessionId}:`, error);
       }
     }
@@ -146,11 +147,11 @@ export class SessionStorage {
       let cleanedCount = 0;
 
       for (const file of files) {
-        if (!file.endsWith('.json')) continue;
+        if (!file.endsWith(".json")) continue;
 
         const filePath = path.join(this.storageDir, file);
         try {
-          const content = await fs.readFile(filePath, 'utf-8');
+          const content = await fs.readFile(filePath, "utf-8");
           const session: StoredSession = JSON.parse(content);
 
           if (Date.now() > session.expiresAt) {
@@ -168,7 +169,7 @@ export class SessionStorage {
 
       return cleanedCount;
     } catch (error) {
-      console.error('Error cleaning up sessions:', error);
+      console.error("Error cleaning up sessions:", error);
       return 0;
     }
   }
@@ -184,11 +185,11 @@ export class SessionStorage {
       const sessions: string[] = [];
 
       for (const file of files) {
-        if (!file.endsWith('.json')) continue;
+        if (!file.endsWith(".json")) continue;
 
         const filePath = path.join(this.storageDir, file);
         try {
-          const content = await fs.readFile(filePath, 'utf-8');
+          const content = await fs.readFile(filePath, "utf-8");
           const session: StoredSession = JSON.parse(content);
 
           if (Date.now() <= session.expiresAt) {
@@ -201,7 +202,7 @@ export class SessionStorage {
 
       return sessions;
     } catch (error) {
-      console.error('Error getting active sessions:', error);
+      console.error("Error getting active sessions:", error);
       return [];
     }
   }

@@ -64,7 +64,13 @@ const server = Bun.serve({
         if (!checkOut) throw new Error("checkOut parameter is required");
         const adults = Number(url.searchParams.get("adults")) || 2;
 
-        console.log("[API] Creating search request:", { origin, destination, checkIn, checkOut, adults });
+        console.log("[API] Creating search request:", {
+          origin,
+          destination,
+          checkIn,
+          checkOut,
+          adults,
+        });
 
         // Create async search request
         const requestId = await searchService.createSearchRequest({

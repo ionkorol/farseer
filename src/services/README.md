@@ -5,6 +5,7 @@ This directory contains the search service implementation for async background s
 ## Overview
 
 The search service provides asynchronous search request processing with database-backed status tracking. This allows:
+
 - **Non-blocking searches**: Users get immediate response with a request ID
 - **Background processing**: Searches continue even if the page is closed
 - **Status tracking**: Real-time updates via long polling on the frontend
@@ -53,15 +54,17 @@ model SearchRequest {
 ### Search Service API
 
 #### `createSearchRequest(params)`
+
 Creates a new search request and starts async processing.
 
 **Parameters:**
+
 ```typescript
 interface SearchRequestParams {
   origin: string;
   destination: string;
-  checkIn: string;        // YYYY-MM-DD
-  checkOut: string;       // YYYY-MM-DD
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
   rooms: number;
   adultsPerRoom: number[];
   childrenPerRoom: number[];
@@ -72,6 +75,7 @@ interface SearchRequestParams {
 **Returns:** `Promise<string>` - Request ID
 
 **Example:**
+
 ```typescript
 const searchService = new SearchService();
 const requestId = await searchService.createSearchRequest({
@@ -88,9 +92,11 @@ const requestId = await searchService.createSearchRequest({
 ```
 
 #### `getSearchRequest(requestId)`
+
 Get current status and results for a search request.
 
 **Parameters:**
+
 - `requestId: string` - The search request ID
 
 **Returns:** `Promise<SearchRequestResponse | null>`
@@ -99,14 +105,15 @@ Get current status and results for a search request.
 interface SearchRequestResponse {
   requestId: string;
   status: "pending" | "in_progress" | "completed" | "failed";
-  hotels?: VaxHotelResult[];  // Only when status is "completed"
-  error?: string;              // Only when status is "failed"
+  hotels?: VaxHotelResult[]; // Only when status is "completed"
+  error?: string; // Only when status is "failed"
   createdAt: Date;
   updatedAt: Date;
 }
 ```
 
 **Example:**
+
 ```typescript
 const status = await searchService.getSearchRequest("clxyz123abc");
 if (status.status === "completed") {
@@ -117,11 +124,13 @@ if (status.status === "completed") {
 ## API Endpoints
 
 ### Create Search Request
+
 ```
 GET /api/search?origin={origin}&destination={dest}&checkIn={date}&checkOut={date}&adults={n}
 ```
 
 **Response:**
+
 ```json
 {
   "requestId": "clxyz123abc..."
@@ -129,11 +138,13 @@ GET /api/search?origin={origin}&destination={dest}&checkIn={date}&checkOut={date
 ```
 
 ### Check Search Status
+
 ```
 GET /api/search/{requestId}
 ```
 
 **Response:**
+
 ```json
 {
   "requestId": "clxyz123abc...",
@@ -144,6 +155,7 @@ GET /api/search/{requestId}
 ```
 
 When completed:
+
 ```json
 {
   "requestId": "clxyz123abc...",
@@ -155,6 +167,7 @@ When completed:
 ```
 
 ### View Results Page
+
 ```
 GET /results?requestId={requestId}
 ```
@@ -187,25 +200,33 @@ const { data: searchRequest } = useQuery<SearchRequestResponse>({
 ## Status States
 
 ### 1. Pending
+
 Initial state when search request is created. Shows:
+
 - "Search request queued..."
 - Spinner animation
 - Request ID for tracking
 
 ### 2. In Progress
+
 Search is actively running. Shows:
+
 - "Searching for hotels..."
 - Spinner animation
 - Request ID and current status
 
 ### 3. Completed
+
 Search finished successfully. Shows:
+
 - Full hotel results
 - Filters and sorting controls
 - Statistics (hotel count, avg price, etc.)
 
 ### 4. Failed
+
 Search encountered an error. Shows:
+
 - Error message
 - "Try again" button to return to search form
 
@@ -238,6 +259,7 @@ try {
 ## Usage Example
 
 ### Server-side (creating search)
+
 ```typescript
 import { SearchService } from "./services/searchService.js";
 
@@ -260,6 +282,7 @@ return Response.redirect(`/results?requestId=${requestId}`);
 ```
 
 ### Client-side (viewing results)
+
 ```tsx
 import { HotelResultsClient } from "./components/HotelResultsClient.js";
 
@@ -267,12 +290,13 @@ import { HotelResultsClient } from "./components/HotelResultsClient.js";
 <HotelResultsClient
   requestId={requestId}
   filters={{ sortBy: "price", filterRating: 0, maxPrice: 10000 }}
-/>
+/>;
 ```
 
 ## Future Enhancements
 
 Potential improvements:
+
 - WebSocket support for real-time updates instead of polling
 - Progress tracking (e.g., "Searching vendor 2 of 5...")
 - Search history dashboard

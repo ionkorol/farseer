@@ -55,7 +55,9 @@ export class SearchService {
 
     // If we found an existing cache with a search request, return that request ID
     if (existingCache?.searchRequest) {
-      console.log(`[SearchService] Found existing search request: ${existingCache.searchRequest.id}`);
+      console.log(
+        `[SearchService] Found existing search request: ${existingCache.searchRequest.id}`,
+      );
       return existingCache.searchRequest.id;
     }
 
@@ -131,7 +133,9 @@ export class SearchService {
         throw new Error(response.error || "Search failed");
       }
 
-      console.log(`[SearchService] Search completed for request ${requestId}: ${response.hotels.length} hotels found`);
+      console.log(
+        `[SearchService] Search completed for request ${requestId}: ${response.hotels.length} hotels found`,
+      );
 
       // Find the SearchCache entry that was created by searchAllVendors
       const cacheKey = this.generateCacheKey(params);
@@ -234,8 +238,12 @@ export class SearchService {
             }),
           })),
           ...(hotel.tripAdvisorRating !== null && { tripAdvisorRating: hotel.tripAdvisorRating }),
-          ...(hotel.tripAdvisorReviews !== null && { tripAdvisorReviews: hotel.tripAdvisorReviews }),
-          ...(hotel.distanceFromAirport !== null && { distanceFromAirport: hotel.distanceFromAirport }),
+          ...(hotel.tripAdvisorReviews !== null && {
+            tripAdvisorReviews: hotel.tripAdvisorReviews,
+          }),
+          ...(hotel.distanceFromAirport !== null && {
+            distanceFromAirport: hotel.distanceFromAirport,
+          }),
           ...(hotel.cleaningBadge !== null && { cleaningBadge: hotel.cleaningBadge }),
         };
         return result;
