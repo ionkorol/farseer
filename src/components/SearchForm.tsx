@@ -1,13 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import type { VaxMarket } from "../clients/vax/vax.models.js";
 import "./SearchForm.css";
+import type { ISupplierMarket } from "@/suppliers/supplier-interface.js";
 
 export function SearchForm() {
-  // Default to APV vendor
-  const selectedVendor = "APV";
-  const [selectedOrigin, setSelectedOrigin] = useState<VaxMarket | null>(null);
-  const [selectedDestination, setSelectedDestination] = useState<VaxMarket | null>(null);
+  const [selectedOrigin, setSelectedOrigin] = useState<ISupplierMarket | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<ISupplierMarket | null>(null);
 
   const [originSearch, setOriginSearch] = useState("");
   const [destinationSearch, setDestinationSearch] = useState("");
@@ -19,27 +17,25 @@ export function SearchForm() {
   const [adults, setAdults] = useState(2);
 
   const { data: origins = [] } = useQuery({
-    queryKey: ["origins", selectedVendor],
+    queryKey: ["origins"],
     queryFn: async () => {
-      const res = await fetch(`/api/origins?vendorCode=${selectedVendor}&packageCode=AH`);
+      const res = await fetch("/api/origins");
       if (!res.ok) {
         throw new Error("Failed to fetch origins");
       }
-      return res.json() as Promise<VaxMarket[]>;
+      return res.json() as Promise<ISupplierMarket[]>;
     },
   });
 
   const { data: destinations = [] } = useQuery({
-    queryKey: ["destinations", selectedVendor, selectedOrigin?.code],
+    queryKey: ["destinations"],
     queryFn: async () => {
       if (!selectedOrigin) return [];
-      const res = await fetch(
-        `/api/destinations?vendorCode=${selectedVendor}&packageCode=AH&originCode=${selectedOrigin.code}`,
-      );
+      const res = await fetch("/api/destinations");
       if (!res.ok) {
         throw new Error("Failed to fetch destinations");
       }
-      return res.json() as Promise<VaxMarket[]>;
+      return res.json() as Promise<ISupplierMarket[]>;
     },
     enabled: !!selectedOrigin,
   });
@@ -62,26 +58,24 @@ export function SearchForm() {
   const filteredOrigins = origins.filter(
     (origin) =>
       originSearch.length >= 2 &&
-      (origin.description.toLowerCase().includes(originSearch.toLowerCase()) ||
-        origin.code.toLowerCase().includes(originSearch.toLowerCase())),
+      (origin.name.toLowerCase().includes(originSearch.toLowerCase()) || origin.id.toLowerCase().includes(originSearch.toLowerCase())),
   );
 
   const filteredDestinations = destinations.filter(
     (dest) =>
       destinationSearch.length >= 2 &&
-      (dest.description.toLowerCase().includes(destinationSearch.toLowerCase()) ||
-        dest.code.toLowerCase().includes(destinationSearch.toLowerCase())),
+      (dest.name.toLowerCase().includes(destinationSearch.toLowerCase()) || dest.id.toLowerCase().includes(destinationSearch.toLowerCase())),
   );
 
-  const handleOriginSelect = (origin: VaxMarket) => {
+  const handleOriginSelect = (origin: ISupplierMarket) => {
     setSelectedOrigin(origin);
-    setOriginSearch(origin.description);
+    setOriginSearch(origin.name);
     setShowOriginDropdown(false);
   };
 
-  const handleDestinationSelect = (dest: VaxMarket) => {
+  const handleDestinationSelect = (dest: ISupplierMarket) => {
     setSelectedDestination(dest);
-    setDestinationSearch(dest.description);
+    setDestinationSearch(dest.name);
     setShowDestinationDropdown(false);
   };
 
@@ -95,7 +89,6 @@ export function SearchForm() {
 
     setError("");
     console.log("Submitting search:", {
-      vendor: selectedVendor,
       origin: selectedOrigin,
       destination: selectedDestination,
       checkIn,
@@ -106,7 +99,7 @@ export function SearchForm() {
     try {
       // Create search request via API
       const response = await fetch(
-        `/api/search?origin=${selectedOrigin.code}&destination=${selectedDestination.code}&checkIn=${checkIn}&checkOut=${checkOut}&adults=${adults}`,
+        `/api/search?origin=${selectedOrigin.id}&destination=${selectedDestination.id}&checkIn=${checkIn}&checkOut=${checkOut}&adults=${adults}`,
       );
 
       if (!response.ok) {
@@ -157,12 +150,8 @@ export function SearchForm() {
                       <div className="search-form-empty-message">No matches found</div>
                     ) : (
                       filteredOrigins.map((origin) => (
-                        <div
-                          key={origin.code}
-                          onClick={() => handleOriginSelect(origin)}
-                          className="search-form-dropdown-item"
-                        >
-                          {origin.description}
+                        <div key={origin.id} onClick={() => handleOriginSelect(origin)} className="search-form-dropdown-item">
+                          {origin.name}
                         </div>
                       ))
                     )}
@@ -193,12 +182,8 @@ export function SearchForm() {
                       <div className="search-form-empty-message">No matches found</div>
                     ) : (
                       filteredDestinations.map((dest) => (
-                        <div
-                          key={dest.code}
-                          onClick={() => handleDestinationSelect(dest)}
-                          className="search-form-dropdown-item"
-                        >
-                          {dest.description}
+                        <div key={dest.id} onClick={() => handleDestinationSelect(dest)} className="search-form-dropdown-item">
+                          {dest.name}
                         </div>
                       ))
                     )}
@@ -208,24 +193,12 @@ export function SearchForm() {
 
               <div>
                 <label className="search-form-label">Check-in</label>
-                <input
-                  type="date"
-                  value={checkIn}
-                  onChange={(e) => setCheckIn(e.target.value)}
-                  required
-                  className="search-form-input"
-                />
+                <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} required className="search-form-input" />
               </div>
 
               <div>
                 <label className="search-form-label">Check-out</label>
-                <input
-                  type="date"
-                  value={checkOut}
-                  onChange={(e) => setCheckOut(e.target.value)}
-                  required
-                  className="search-form-input"
-                />
+                <input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} required className="search-form-input" />
               </div>
 
               <div>

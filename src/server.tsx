@@ -1,9 +1,11 @@
-import { VaxClient } from "./clients/vax/vax.client.js";
-import { SearchService } from "./services/searchService.js";
+import { SearchService } from "@/services/search-service.js";
 import index from "./index.html";
+import { VendorService } from "./services/vendor-service.js";
+import { MarketService } from "./services/market-service.js";
 
-const vaxClient = new VaxClient();
 const searchService = new SearchService();
+const vendorService = new VendorService();
+const marketService = new MarketService();
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
@@ -12,17 +14,15 @@ const server = Bun.serve({
   routes: {
     "/*": index,
     "/api/vendors": async () => {
-      const vendors = await vaxClient.listCachedVendors();
+      const vendors = await vendorService.listVendors();
 
       return new Response(JSON.stringify(vendors), {
         headers: { "Content-Type": "application/json" },
       });
     },
-    "/api/origins": async (req) => {
+    "/api/origins": async () => {
       try {
-        const url = new URL(req.url);
-        const vendorCode = url.searchParams.get("vendorCode") || "FJ1";
-        const origins = await vaxClient.listCachedOriginMarkets(vendorCode);
+        const origins = await marketService.listOriginMarkets();
 
         return new Response(JSON.stringify(origins), {
           headers: { "Content-Type": "application/json" },
@@ -34,12 +34,9 @@ const server = Bun.serve({
         });
       }
     },
-    "/api/destinations": async (req) => {
+    "/api/destinations": async () => {
       try {
-        const url = new URL(req.url);
-        const vendorCode = url.searchParams.get("vendorCode") || "FJ1";
-
-        const destinations = await vaxClient.listCachedDestinationMarkets(vendorCode);
+        const destinations = await marketService.listDestinationMarkets();
 
         return new Response(JSON.stringify(destinations), {
           headers: { "Content-Type": "application/json" },
@@ -64,15 +61,6 @@ const server = Bun.serve({
         if (!checkOut) throw new Error("checkOut parameter is required");
         const adults = Number(url.searchParams.get("adults")) || 2;
 
-        console.log("[API] Creating search request:", {
-          origin,
-          destination,
-          checkIn,
-          checkOut,
-          adults,
-        });
-
-        // Create async search request
         const requestId = await searchService.createSearchRequest({
           origin,
           destination,
@@ -128,10 +116,7 @@ const server = Bun.serve({
     },
   },
   development: process.env.NODE_ENV !== "production" && {
-    // Enable browser hot reloading in development
     hmr: true,
-
-    // Echo console logs from the browser to the server
     console: true,
   },
 });

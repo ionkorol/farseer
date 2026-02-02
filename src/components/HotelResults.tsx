@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import type { SearchRequestResponse } from "../services/searchService.js";
+import type { SearchRequestResponse } from "../services/search-service.js";
 import "./HotelResults.css";
 
 export function HotelResults() {
@@ -8,9 +8,7 @@ export function HotelResults() {
   const requestId = urlParams.get("requestId");
 
   // Client-side filter state
-  const [sortBy, setSortBy] = useState<"price" | "priceDesc" | "rating" | "name" | "tripadvisor">(
-    "price",
-  );
+  const [sortBy, setSortBy] = useState<"price" | "priceDesc" | "rating" | "name" | "tripadvisor">("price");
   const [filterRating, setFilterRating] = useState(0);
   const [maxPrice, setMaxPrice] = useState(Infinity);
 
@@ -31,7 +29,7 @@ export function HotelResults() {
     refetchInterval: (query) => {
       const data = query.state.data;
       // Stop polling when search is completed or failed
-      if (data?.status === "completed" || data?.status === "failed") {
+      if (data?.status === "COMPLETED" || data?.status === "FAILED") {
         return false;
       }
       // Poll every 2 seconds while pending/in_progress
@@ -43,9 +41,7 @@ export function HotelResults() {
 
   // Calculate prices for useEffect (safe to run even when no data)
   const hotels = searchRequest?.hotels || [];
-  const allRooms = hotels.flatMap((hotel) =>
-    hotel.rooms.map((room) => ({ ...room, hotelName: hotel.name })),
-  );
+  const allRooms = hotels.flatMap((hotel) => hotel.rooms.map((room) => ({ ...room, hotelName: hotel.name })));
   const prices = allRooms.map((r) => r.totalPrice);
   const maxPriceOverall = prices.length > 0 ? Math.max(...prices) : 10000;
 
@@ -93,21 +89,14 @@ export function HotelResults() {
   }
 
   // Show pending/in_progress state
-  if (searchRequest.status === "pending" || searchRequest.status === "in_progress") {
+  if (searchRequest.status === "PENDING" || searchRequest.status === "IN_PROGRESS") {
     return (
       <div className="container">
         <div className="loading-state">
           <div className="spinner"></div>
-          <h2>
-            {searchRequest.status === "pending"
-              ? "Search request queued..."
-              : "Searching for hotels..."}
-          </h2>
+          <h2>{searchRequest.status === "PENDING" ? "Search request queued..." : "Searching for hotels..."}</h2>
           {searchRequest.progress && <p className="progress-message">{searchRequest.progress}</p>}
-          <p>
-            This may take a few moments. Feel free to close this page - your search will continue in
-            the background.
-          </p>
+          <p>This may take a few moments. Feel free to close this page - your search will continue in the background.</p>
           <div className="status-info">
             <p>Request ID: {requestId}</p>
             <p>Status: {searchRequest.status}</p>
@@ -119,12 +108,12 @@ export function HotelResults() {
   }
 
   // Show failed state
-  if (searchRequest.status === "failed") {
+  if (searchRequest.status === "FAILED") {
     return (
       <div className="container">
         <div className="error-state">
           <h2>Search failed</h2>
-          <p>{searchRequest.error || "An error occurred during the search"}</p>
+          <p>An error occurred during the search</p>
           <button onClick={() => (window.location.href = "/")}>Try again</button>
         </div>
       </div>
@@ -164,8 +153,7 @@ export function HotelResults() {
     });
 
   const totalRooms = filteredAndSorted.reduce((sum, hotel) => sum + hotel.rooms.length, 0);
-  const avgPrice =
-    allRooms.length > 0 ? allRooms.reduce((sum, r) => sum + r.totalPrice, 0) / allRooms.length : 0;
+  const avgPrice = allRooms.length > 0 ? allRooms.reduce((sum, r) => sum + r.totalPrice, 0) / allRooms.length : 0;
 
   return (
     <div className="container">
@@ -177,11 +165,7 @@ export function HotelResults() {
       <div className="controls">
         <div className="control-group">
           <label htmlFor="sort">Sort by:</label>
-          <select
-            id="sort"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-          >
+          <select id="sort" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
             <option value="price">Price (Low to High)</option>
             <option value="priceDesc">Price (High to Low)</option>
             <option value="rating">Star Rating</option>
@@ -192,11 +176,7 @@ export function HotelResults() {
 
         <div className="control-group">
           <label htmlFor="rating">Minimum Rating:</label>
-          <select
-            id="rating"
-            value={filterRating}
-            onChange={(e) => setFilterRating(Number(e.target.value))}
-          >
+          <select id="rating" value={filterRating} onChange={(e) => setFilterRating(Number(e.target.value))}>
             <option value="0">All Hotels</option>
             <option value="5">5 Stars</option>
             <option value="4">4+ Stars</option>
@@ -248,7 +228,7 @@ export function HotelResults() {
           </div>
         )}
         {filteredAndSorted.map((hotel) => (
-          <div key={`${hotel.vendor}-${hotel.hotelId || hotel.name}`} className="hotel-card">
+          <div key={hotel.id} className="hotel-card">
             <div className="hotel-header">
               <h2 className="hotel-name">{hotel.name}</h2>
 
@@ -261,8 +241,7 @@ export function HotelResults() {
                 {hotel.tripAdvisorRating && (
                   <span className="tripadvisor">
                     TripAdvisor: {hotel.tripAdvisorRating.toFixed(1)}/5
-                    {hotel.tripAdvisorReviews &&
-                      ` (${hotel.tripAdvisorReviews.toLocaleString()} reviews)`}
+                    {hotel.tripAdvisorReviews && ` (${hotel.tripAdvisorReviews.toLocaleString()} reviews)`}
                   </span>
                 )}
 
@@ -271,31 +250,22 @@ export function HotelResults() {
                   {hotel.distanceFromAirport && ` • ${hotel.distanceFromAirport} mi from airport`}
                 </span>
 
-                <span className="badge badge-vendor">{hotel.vendor}</span>
-
-                {hotel.cleaningBadge && (
-                  <span className="badge badge-cleaning">✓ {hotel.cleaningBadge} Certified</span>
-                )}
+                {hotel.cleaningBadge && <span className="badge badge-cleaning">✓ {hotel.cleaningBadge} Certified</span>}
               </div>
             </div>
 
             <div className="rooms">
-              {hotel.rooms.map((room, idx) => (
-                <div key={`${hotel.vendor}-${hotel.hotelId}-${room.code}-${idx}`} className="room">
+              {hotel.rooms.map((room) => (
+                <div key={room.id} className="room">
                   <div className="room-header">
                     <div className="room-name">{room.name}</div>
                     <div className="room-price">
                       <div className="price-total">${room.totalPrice.toFixed(2)}</div>
-                      {room.pricePerPerson && (
-                        <div className="price-per-person">
-                          ${room.pricePerPerson.toFixed(2)} per person
-                        </div>
-                      )}
+                      {room.pricePerPerson && <div className="price-per-person">${room.pricePerPerson.toFixed(2)} per person</div>}
                     </div>
                   </div>
 
-                  {(room.addedValues && room.addedValues.length > 0) ||
-                  (room.valueIndicators && room.valueIndicators.length > 0) ? (
+                  {(room.addedValues && room.addedValues.length > 0) || (room.valueIndicators && room.valueIndicators.length > 0) ? (
                     <div className="room-details">
                       {room.addedValues?.map((value, i) => (
                         <span key={`promo-${i}`} className="tag tag-promotion">

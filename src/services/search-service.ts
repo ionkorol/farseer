@@ -1,0 +1,157 @@
+import type { ISupplierSearchParams } from "@/suppliers/supplier-interface.js";
+import { type $Enums, prisma, type Hotel, type Room } from "@/db/index.js";
+import { createSupplierClient } from "@/suppliers/supplier-factory.js";
+
+export interface SearchRequestResponse {
+  requestId: string;
+  status: $Enums.SearchRequestStatus;
+  progress: string | null;
+  hotels: (Hotel & {
+    rooms: (Omit<Room, "totalPrice" | "pricePerPerson"> & {
+      totalPrice: number;
+      pricePerPerson: number | null;
+    })[];
+  })[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export class SearchService {
+  public async createSearchRequest(params: ISupplierSearchParams): Promise<string> {
+    const cacheKey = this.generateCacheKey(params);
+
+    let searchRequest = await prisma.searchRequest.findFirst({
+      where: {
+        searchKey: cacheKey,
+      },
+    });
+
+    if (searchRequest) {
+      return searchRequest.id;
+    }
+
+    searchRequest = await prisma.searchRequest.create({
+      data: {
+        searchKey: cacheKey,
+        origin: params.origin,
+        destination: params.destination,
+        checkIn: new Date(params.checkIn),
+        checkOut: new Date(params.checkOut),
+        rooms: params.rooms,
+        adultsPerRoom: JSON.stringify(params.adultsPerRoom),
+        childrenPerRoom: JSON.stringify(params.childrenPerRoom),
+        childAges: JSON.stringify(params.childAges),
+        status: "PENDING",
+      },
+    });
+
+    console.log(`[SearchService] Created new search request: ${searchRequest.id}`);
+
+    this.processSearch(searchRequest.id, params).catch((error) => {
+      console.error(`Search request ${searchRequest.id} failed:`, error);
+    });
+
+    return searchRequest.id;
+  }
+
+  public async getSearchRequest(requestId: string): Promise<SearchRequestResponse | null> {
+    const searchRequest = await prisma.searchRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        hotels: {
+          include: {
+            rooms: true,
+          },
+        },
+      },
+    });
+
+    if (!searchRequest) {
+      return null;
+    }
+
+    const response: SearchRequestResponse = {
+      requestId: searchRequest.id,
+      status: searchRequest.status,
+      hotels: searchRequest.hotels.map((hotel) => ({
+        ...hotel,
+        rooms: hotel.rooms.map((room) => ({
+          ...room,
+          totalPrice: room.totalPrice.toNumber(),
+          pricePerPerson: room.pricePerPerson?.toNumber() || null,
+        })),
+      })),
+      progress: searchRequest.progress,
+      createdAt: searchRequest.createdAt.toISOString(),
+      updatedAt: searchRequest.updatedAt.toISOString(),
+    };
+
+    return response;
+  }
+
+  private async processSearch(requestId: string, params: ISupplierSearchParams): Promise<void> {
+    try {
+      const searchRequest = await prisma.searchRequest.update({
+        where: { id: requestId },
+        data: {
+          status: "IN_PROGRESS",
+          progress: "Initializing search...",
+        },
+      });
+
+      const supplierClients = searchRequest.suppliers.map((name) => createSupplierClient(name));
+
+      for (const supplierClient of supplierClients) {
+        const searchResponse = await supplierClient.search(params);
+        if (!searchResponse.success) {
+          throw new Error(`Supplier search failed: ${searchResponse.error}`);
+        }
+
+        await prisma.searchRequest.update({
+          where: { id: requestId },
+          data: {
+            hotels: {
+              createMany: {
+                data: searchResponse.hotels,
+                skipDuplicates: true,
+              },
+            },
+          },
+        });
+      }
+
+      console.log(`[SearchService] Search request ${requestId} marked as completed`);
+    } catch (error) {
+      console.error(`[SearchService] Search request ${requestId} failed:`, error);
+      await prisma.searchRequest.update({
+        where: { id: requestId },
+        data: {
+          status: "FAILED",
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private generateCacheKey(params: ISupplierSearchParams): string {
+    const sanitize = (str: string) => str.replace(/[^a-zA-Z0-9]/g, "_");
+
+    const parts = [
+      sanitize(params.origin),
+      sanitize(params.destination),
+      params.checkIn,
+      params.checkOut,
+      params.rooms.toString(),
+      params.adultsPerRoom.join("-"),
+    ];
+
+    if (params.childrenPerRoom.some((count) => count > 0)) {
+      parts.push(params.childrenPerRoom.join("-"));
+      if (params.childAges.length > 0) {
+        parts.push(params.childAges.map((ages) => ages.join("-")).join("_"));
+      }
+    }
+
+    return parts.join("_");
+  }
+}

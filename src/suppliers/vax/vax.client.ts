@@ -1,32 +1,39 @@
 import type { AxiosInstance } from "axios";
-import { createBaseClient, CookieJar } from "../baseClient.js";
-import { createSessionStorage, type SessionStorage } from "../../utils/sessionStorage.js";
-import { ResponseStorage } from "../../utils/responseStorage.js";
-import { config } from "../../utils/settings.js";
-import { getAspNetFormScriptManagerField, parseAspNetFormHiddenInputs } from "../../utils/aspnet-form.utils.js";
-import { getCachedSearchResults, saveSearchResultsToCache } from "../../lib/searchCache.js";
+import { createBaseClient, CookieJar } from "../base-api-client.js";
+import { createSessionStorage, type SessionStorage } from "@/utils/sessionStorage.js";
+import { ResponseStorage } from "@/utils/responseStorage.js";
+import { getAspNetFormScriptManagerField, parseAspNetFormHiddenInputs } from "@/utils/aspnet-form.utils.js";
 import * as cheerio from "cheerio";
 import type {
   VaxLoginCredentials,
   VaxLoginFormData,
   VaxLoginResponse,
   VaxSearchParams,
-  VaxSearchResponse,
   VaxSession,
   VaxHotelResult,
   VaxRoomOption,
-  VaxVendor,
-  VaxMarket,
   VaxMarketsResponse,
 } from "./vax.models.js";
+import { settings } from "@/utils/settings.js";
+import type {
+  ISupplierClient,
+  ISupplierHotel,
+  ISupplierMarket,
+  ISupplierSearchParams,
+  ISupplierSearchResponse,
+  ISupplierVendor,
+} from "../supplier-interface.js";
+import { type $Enums, Decimal } from "@/db/index.js";
 
 const credentials: VaxLoginCredentials = {
-  arc: config.vax.arc,
-  username: config.vax.username,
-  password: config.vax.password,
+  arc: settings.VAX_ARC,
+  username: settings.VAX_USERNAME,
+  password: settings.VAX_PASSWORD,
 };
 
-export class VaxClient {
+export class VaxClient implements ISupplierClient {
+  readonly name: $Enums.Supplier = "VAX";
+
   private client: AxiosInstance;
   private cookieJar: CookieJar;
   private session: VaxSession | null = null;
@@ -38,7 +45,7 @@ export class VaxClient {
   constructor() {
     this.sessionStorage = createSessionStorage();
     this.responseStorage = new ResponseStorage();
-    this.sessionTTL = config.session.ttlMs;
+    this.sessionTTL = settings.SESSION_TTL_HOURS * 60 * 60 * 1000;
     this.client = createBaseClient({
       baseURL: this.baseURL,
       headers: {
@@ -66,275 +73,87 @@ export class VaxClient {
     this.cookieJar = new CookieJar();
   }
 
-  /**
-   * Generate a unique session ID for this user
-   */
-  private getSessionId(username: string, arc: string): string {
-    return `vax_${arc}_${username}`;
-  }
+  public async search(params: ISupplierSearchParams): Promise<ISupplierSearchResponse> {
+    await this.ensureLoggedIn();
 
-  async restoreSession(username: string, arc: string): Promise<boolean> {
-    if (!this.sessionStorage) {
-      return false;
-    }
-
-    const sessionId = this.getSessionId(username, arc);
-    const sessionData = await this.sessionStorage.loadSession(sessionId);
-
-    if (!sessionData) {
-      return false;
-    }
-
-    // Restore session and cookies
-    this.session = {
-      cookies: sessionData.cookies,
-      arcNumber: arc,
-      username: username,
-      loginTime: new Date(sessionData.loginTime),
-    };
-
-    // Restore cookies to cookie jar
-    Object.entries(sessionData.cookies as Record<string, string>).forEach(([name, value]) => {
-      this.cookieJar["cookies"].set(name, value);
-    });
-
-    return true;
-  }
-
-  /**
-   * Save current session to cache
-   */
-  private async saveSession(): Promise<void> {
-    if (!this.sessionStorage || !this.session) {
-      return;
-    }
-
-    const sessionId = this.getSessionId(this.session.username, this.session.arcNumber);
-    await this.sessionStorage.saveSession(
-      sessionId,
-      {
-        cookies: this.session.cookies,
-        loginTime: this.session.loginTime.toISOString(),
-        arcNumber: this.session.arcNumber,
-        username: this.session.username,
-      },
-      this.sessionTTL,
-    );
-  }
-
-  /**
-   * Clear cached session
-   */
-  private async clearCachedSession(): Promise<void> {
-    if (!this.sessionStorage || !this.session) {
-      return;
-    }
-
-    const sessionId = this.getSessionId(this.session.username, this.session.arcNumber);
-    await this.sessionStorage.deleteSession(sessionId);
-  }
-
-  /**
-   * Fetch the login page to get initial cookies and form tokens
-   * ASP.NET requires VIEWSTATE, VIEWSTATEGENERATOR, and EVENTVALIDATION tokens
-   */
-  private async getLoginPageTokens(): Promise<{
-    viewState: string;
-    viewStateGenerator: string;
-    eventValidation: string;
-  }> {
-    const response = await this.client.get("/default.aspx");
-
-    const setCookieHeaders = response.headers["set-cookie"];
-    if (setCookieHeaders) {
-      this.cookieJar.setCookies(setCookieHeaders);
-    }
-
-    const html = response.data as string;
-
-    const viewStateMatch = html.match(/id="__VIEWSTATE"\s+value="([^"]+)"/);
-    const viewStateGeneratorMatch = html.match(/id="__VIEWSTATEGENERATOR"\s+value="([^"]+)"/);
-    const eventValidationMatch = html.match(/id="__EVENTVALIDATION"\s+value="([^"]+)"/);
-
-    if (!viewStateMatch || !viewStateGeneratorMatch || !eventValidationMatch) {
-      throw new Error("Failed to extract ASP.NET form tokens from login page");
-    }
-
-    return {
-      viewState: viewStateMatch[1] || "",
-      viewStateGenerator: viewStateGeneratorMatch[1] || "",
-      eventValidation: eventValidationMatch[1] || "",
-    };
-  }
-
-  /**
-   * Build the form data payload for login POST request
-   */
-  private buildLoginFormData(
-    credentials: VaxLoginCredentials,
-    tokens: { viewState: string; viewStateGenerator: string; eventValidation: string },
-  ): URLSearchParams {
-    const formData: VaxLoginFormData = {
-      ctl00_ContentPlaceHolder_sm_HiddenField:
-        ";AjaxControlToolkit, Version=3.0.20820.100, Culture=neutral, PublicKeyToken=28f01b0e84b6d53e:en-US:4c3d9860-2e06-4722-a6e5-a622d77d3633:411fea1c:865923e8:e7c87f07:91bd373d:bbfda34c:30a78ec5:5430d994;Trisept.UI.Web.Shell:en-US:caf83fe0-1a44-48b8-9a4f-67c4484f426a:53482884:baba344c:4e089d68:e4770b2c:c33b30a7:1aed194b:e234562e:9dda3150:aa92e3ca:eca68493;Trisept.UI.Web.Shell.Foundation:en-US:5f23006c-37b1-4078-8aba-c57b368ad878:b56c8777",
-      __LASTFOCUS: "",
-      __EVENTTARGET: "",
-      __EVENTARGUMENT: "",
-      __VIEWSTATE: tokens.viewState,
-      __VIEWSTATEGENERATOR: tokens.viewStateGenerator,
-      __EVENTVALIDATION: tokens.eventValidation,
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Arc: credentials.arc,
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceARCRequired_ClientState: "",
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceTcvArc_ClientState: "",
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$UserName: credentials.username,
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceUserNameRequired_ClientState: "",
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceTcvUserName_ClientState: "",
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Password: credentials.password,
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vcePasswordRequired_ClientState: "",
-      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$LoginButton: "Login",
-      hdnRedirectUrl: "https://www.vaxvacationaccess.com/",
-    };
-
-    // Convert to URLSearchParams for proper form encoding
-    const params = new URLSearchParams();
-    Object.entries(formData).forEach(([key, value]) => {
-      params.append(key, value);
-    });
-
-    return params;
-  }
-
-  /**
-   * Authenticate with VAX Vacation Access
-   * Automatically tries to restore cached session before making a login request
-   * @param credentials - Login credentials (ARC, username, password)
-   * @param forceLogin - Force fresh login even if cached session exists
-   * @returns Login response with session information
-   */
-  async login(): Promise<VaxLoginResponse> {
     try {
-      // Try to restore session from cache first
-      if (this.sessionStorage) {
-        const restored = await this.restoreSession(credentials.username, credentials.arc);
-        if (restored && this.session) {
-          console.log("✓ Session restored from cache");
-          return {
-            success: true,
-            sessionCookies: this.session.cookies,
-          };
-        }
-      }
+      const vendors = await this.extractLiveVendors();
 
-      const tokens = await this.getLoginPageTokens();
-      const formData = this.buildLoginFormData(credentials, tokens);
+      const allHotels: ISupplierHotel[] = [];
 
-      console.log(`Attempting login for user: ${credentials.username}`);
-      const response = await this.client.post("/default.aspx", formData.toString(), {
-        headers: {
-          Cookie: this.cookieJar.getCookieHeader(),
-        },
-        maxRedirects: 0,
-        validateStatus: (status) => status >= 200 && status < 400, // Accept 3xx responses
-      });
-
-      if (this.responseStorage) {
-        await this.responseStorage.saveResponse("vax_login", response.data as string);
-      }
-
-      // Step 4: Update cookies from response
-      const setCookieHeaders = response.headers["set-cookie"];
-      if (setCookieHeaders) {
-        this.cookieJar.setCookies(setCookieHeaders);
-      }
-
-      // Step 5: Check for successful login (redirect to main site)
-      const isRedirect = response.status >= 300 && response.status < 400;
-      const redirectUrl = response.headers["location"];
-
-      if (isRedirect && redirectUrl?.includes("vaxvacationaccess.com")) {
-        // Login successful - now follow the redirect to establish session on new domain
-        console.log(`Following redirect to: ${redirectUrl}`);
+      for (const vendor of vendors) {
+        console.log(`\nSearching vendor: ${vendor.name} (${vendor.id})`);
 
         try {
-          const redirectResponse = await this.client.get(redirectUrl, {
-            headers: {
-              Cookie: this.cookieJar.getCookieHeader(),
-              Referer: `${this.baseURL}/default.aspx`,
-            },
-            maxRedirects: 5,
-          });
+          const vendorParams: VaxSearchParams = {
+            ...params,
+            vendor: vendor.id,
+            packageType: "H02", // Default to hotel-only package
+          };
 
-          this.cookieJar.setCookiesFromResponse(redirectResponse);
+          const searchResponse = await this.searchVendor(vendorParams);
+          if (!searchResponse.success) {
+            console.log(`  ⚠ Search failed for ${vendor.name}: ${searchResponse.error || "Unknown error"}`);
+            continue;
+          }
 
-          console.log("✓ Session established on search domain");
-        } catch (redirectError) {
-          console.warn("Failed to follow redirect, but continuing:", redirectError);
+          const hotelCount = searchResponse.hotels.length;
+          console.log(`  ✓ Found ${hotelCount} hotels from ${vendor.name}`);
+          allHotels.push(...searchResponse.hotels);
+
+          if (vendor !== vendors[vendors.length - 1]) {
+            console.log("  ⏳ Waiting 2 seconds before next vendor...");
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        } catch (vendorError) {
+          console.error(`  ✗ Error searching vendor ${vendor.name}:`, vendorError);
         }
-
-        this.session = {
-          cookies: Object.fromEntries(this.cookieJar["cookies"]),
-          arcNumber: credentials.arc,
-          username: credentials.username,
-          loginTime: new Date(),
-        };
-
-        // Save session to cache
-        await this.saveSession();
-
-        return {
-          success: true,
-          redirectUrl,
-          sessionCookies: this.session.cookies,
-        };
       }
 
-      // Check response HTML for error messages
-      const html = response.data as string;
-      if (html.includes("Login failed") || html.includes("Invalid credentials")) {
-        return {
-          success: false,
-          error: "Invalid credentials",
-        };
-      }
+      console.log(`\n✅ Search complete! Found ${allHotels.length} total hotels across ${vendors.length} vendors`);
 
       return {
-        success: false,
-        error: "Login failed - unexpected response",
+        success: true,
+        hotels: allHotels,
       };
     } catch (error) {
-      console.error("Login error:", error);
+      console.log("Error during multi-vendor search:");
+      console.error("Search all vendors error:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred during multi-vendor search",
       };
     }
   }
 
-  getSession(): VaxSession | null {
-    return this.session;
+  public async listVendors(): Promise<ISupplierVendor[]> {
+    await this.ensureLoggedIn();
+    const vendors = await this.extractLiveVendors();
+    return vendors;
   }
 
-  isLoggedIn(): boolean {
-    return this.session !== null;
+  public async listOriginMarkets(): Promise<ISupplierMarket[]> {
+    await this.ensureLoggedIn();
+    const vendors = await this.listVendors();
+
+    const vendorMarkets = await Promise.all(vendors.map((vendor) => this.getOriginMarkets(vendor.id, "HO2")));
+    const allMarkets = vendorMarkets.flat();
+
+    return allMarkets;
   }
 
-  async ensureLoggedIn(): Promise<void> {
-    if (!this.isLoggedIn()) {
-      await this.login();
-    }
+  public async listDestinationMarkets(): Promise<ISupplierMarket[]> {
+    await this.ensureLoggedIn();
+    const vendors = await this.listVendors();
+    const vendorMarkets = await Promise.all(vendors.map((vendor) => this.getDestinationMarkets(vendor.id, "HO2")));
+    const allMarkets = vendorMarkets.flat();
+    return allMarkets;
   }
 
-  async logout(): Promise<void> {
-    await this.clearCachedSession();
-    this.session = null;
-    this.cookieJar.clear();
-  }
-
-  async search(params: VaxSearchParams): Promise<VaxSearchResponse> {
+  private async searchVendor(params: VaxSearchParams): Promise<ISupplierSearchResponse> {
     if (!this.isLoggedIn()) {
       return {
         success: false,
-        hotels: [],
         error: "Not logged in. Please call login() first.",
       };
     }
@@ -420,37 +239,266 @@ export class VaxClient {
 
       const hotels = await this.parseSearchHtml(searchPostHtml);
 
-      console.log(`Found ${hotels.length} hotel(s)`);
+      const mappedHotels = this.mapHotels(hotels);
 
       return {
         success: true,
-        hotels,
+        hotels: mappedHotels,
       };
     } catch (error) {
       console.error("Search error:", error);
       return {
         success: false,
-        hotels: [],
         error: error instanceof Error ? error.message : "Unknown error occurred during search",
       };
     }
   }
 
-  async parseSearchHtml(html: string): Promise<VaxHotelResult[]> {
+  private mapHotels(hotels: VaxHotelResult[]): ISupplierHotel[] {
+    return hotels.map(
+      (hotel) =>
+        ({
+          ...hotel,
+          supplier: "VAX",
+          supplierHotelId: hotel.id,
+          rooms: hotel.rooms.map((room) => ({
+            ...room,
+            totalPrice: new Decimal(room.totalPrice),
+            pricePerPerson: room.pricePerPerson ? new Decimal(room.pricePerPerson) : null,
+          })),
+        }) satisfies ISupplierHotel,
+    );
+  }
+
+  private getSessionId(username: string, arc: string): string {
+    return `vax_${arc}_${username}`;
+  }
+
+  private async restoreSession(username: string, arc: string): Promise<boolean> {
+    if (!this.sessionStorage) {
+      return false;
+    }
+
+    const sessionId = this.getSessionId(username, arc);
+    const sessionData = await this.sessionStorage.loadSession(sessionId);
+
+    if (!sessionData) {
+      return false;
+    }
+
+    // Restore session and cookies
+    this.session = {
+      cookies: sessionData.cookies,
+      arcNumber: arc,
+      username: username,
+      loginTime: new Date(sessionData.loginTime),
+    };
+
+    // Restore cookies to cookie jar
+    Object.entries(sessionData.cookies as Record<string, string>).forEach(([name, value]) => {
+      this.cookieJar["cookies"].set(name, value);
+    });
+
+    return true;
+  }
+
+  private async saveSession(): Promise<void> {
+    if (!this.sessionStorage || !this.session) {
+      return;
+    }
+
+    const sessionId = this.getSessionId(this.session.username, this.session.arcNumber);
+    await this.sessionStorage.saveSession(
+      sessionId,
+      {
+        cookies: this.session.cookies,
+        loginTime: this.session.loginTime.toISOString(),
+        arcNumber: this.session.arcNumber,
+        username: this.session.username,
+      },
+      this.sessionTTL,
+    );
+  }
+
+  private async getLoginPageTokens(): Promise<{
+    viewState: string;
+    viewStateGenerator: string;
+    eventValidation: string;
+  }> {
+    const response = await this.client.get("/default.aspx");
+
+    const setCookieHeaders = response.headers["set-cookie"];
+    if (setCookieHeaders) {
+      this.cookieJar.setCookies(setCookieHeaders);
+    }
+
+    const html = response.data as string;
+
+    const viewStateMatch = html.match(/id="__VIEWSTATE"\s+value="([^"]+)"/);
+    const viewStateGeneratorMatch = html.match(/id="__VIEWSTATEGENERATOR"\s+value="([^"]+)"/);
+    const eventValidationMatch = html.match(/id="__EVENTVALIDATION"\s+value="([^"]+)"/);
+
+    if (!viewStateMatch || !viewStateGeneratorMatch || !eventValidationMatch) {
+      throw new Error("Failed to extract ASP.NET form tokens from login page");
+    }
+
+    return {
+      viewState: viewStateMatch[1] || "",
+      viewStateGenerator: viewStateGeneratorMatch[1] || "",
+      eventValidation: eventValidationMatch[1] || "",
+    };
+  }
+
+  private buildLoginFormData(
+    credentials: VaxLoginCredentials,
+    tokens: { viewState: string; viewStateGenerator: string; eventValidation: string },
+  ): URLSearchParams {
+    const formData: VaxLoginFormData = {
+      ctl00_ContentPlaceHolder_sm_HiddenField:
+        ";AjaxControlToolkit, Version=3.0.20820.100, Culture=neutral, PublicKeyToken=28f01b0e84b6d53e:en-US:4c3d9860-2e06-4722-a6e5-a622d77d3633:411fea1c:865923e8:e7c87f07:91bd373d:bbfda34c:30a78ec5:5430d994;Trisept.UI.Web.Shell:en-US:caf83fe0-1a44-48b8-9a4f-67c4484f426a:53482884:baba344c:4e089d68:e4770b2c:c33b30a7:1aed194b:e234562e:9dda3150:aa92e3ca:eca68493;Trisept.UI.Web.Shell.Foundation:en-US:5f23006c-37b1-4078-8aba-c57b368ad878:b56c8777",
+      __LASTFOCUS: "",
+      __EVENTTARGET: "",
+      __EVENTARGUMENT: "",
+      __VIEWSTATE: tokens.viewState,
+      __VIEWSTATEGENERATOR: tokens.viewStateGenerator,
+      __EVENTVALIDATION: tokens.eventValidation,
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Arc: credentials.arc,
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceARCRequired_ClientState: "",
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceTcvArc_ClientState: "",
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$UserName: credentials.username,
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceUserNameRequired_ClientState: "",
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vceTcvUserName_ClientState: "",
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$Password: credentials.password,
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$vcePasswordRequired_ClientState: "",
+      ctl00$ContentPlaceHolder$ctl00$ctl01$LoginCtrl$LoginButton: "Login",
+      hdnRedirectUrl: "https://www.vaxvacationaccess.com/",
+    };
+
+    // Convert to URLSearchParams for proper form encoding
+    const params = new URLSearchParams();
+    Object.entries(formData).forEach(([key, value]) => {
+      params.append(key, value);
+    });
+
+    return params;
+  }
+
+  private async login(): Promise<VaxLoginResponse> {
+    try {
+      if (this.sessionStorage) {
+        const restored = await this.restoreSession(credentials.username, credentials.arc);
+        if (restored && this.session) {
+          console.log("✓ Session restored from cache");
+          return {
+            success: true,
+            sessionCookies: this.session.cookies,
+          };
+        }
+      }
+
+      const tokens = await this.getLoginPageTokens();
+      const formData = this.buildLoginFormData(credentials, tokens);
+
+      console.log(`Attempting login for user: ${credentials.username}`);
+      const response = await this.client.post("/default.aspx", formData.toString(), {
+        headers: {
+          Cookie: this.cookieJar.getCookieHeader(),
+        },
+        maxRedirects: 0,
+        validateStatus: (status) => status >= 200 && status < 400, // Accept 3xx responses
+      });
+
+      if (this.responseStorage) {
+        await this.responseStorage.saveResponse("vax_login", response.data as string);
+      }
+
+      const setCookieHeaders = response.headers["set-cookie"];
+      if (setCookieHeaders) {
+        this.cookieJar.setCookies(setCookieHeaders);
+      }
+
+      const isRedirect = response.status >= 300 && response.status < 400;
+      const redirectUrl = response.headers["location"];
+
+      if (isRedirect && redirectUrl?.includes("vaxvacationaccess.com")) {
+        try {
+          const redirectResponse = await this.client.get(redirectUrl, {
+            headers: {
+              Cookie: this.cookieJar.getCookieHeader(),
+              Referer: `${this.baseURL}/default.aspx`,
+            },
+            maxRedirects: 5,
+          });
+
+          this.cookieJar.setCookiesFromResponse(redirectResponse);
+
+          console.log("✓ Session established on search domain");
+        } catch (redirectError) {
+          console.warn("Failed to follow redirect, but continuing:", redirectError);
+        }
+
+        this.session = {
+          cookies: Object.fromEntries(this.cookieJar["cookies"]),
+          arcNumber: credentials.arc,
+          username: credentials.username,
+          loginTime: new Date(),
+        };
+
+        await this.saveSession();
+
+        return {
+          success: true,
+          redirectUrl,
+          sessionCookies: this.session.cookies,
+        };
+      }
+
+      const html = response.data as string;
+      if (html.includes("Login failed") || html.includes("Invalid credentials")) {
+        return {
+          success: false,
+          error: "Invalid credentials",
+        };
+      }
+
+      return {
+        success: false,
+        error: "Login failed - unexpected response",
+      };
+    } catch (error) {
+      console.error("Login error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  }
+
+  private isLoggedIn(): boolean {
+    return this.session !== null;
+  }
+
+  private async ensureLoggedIn(): Promise<void> {
+    if (!this.isLoggedIn()) {
+      await this.login();
+    }
+  }
+
+  private async parseSearchHtml(html: string): Promise<VaxHotelResult[]> {
     try {
       const $ = cheerio.load(html);
       const hotels: VaxHotelResult[] = [];
 
-      // Extract check-in and check-out dates from the header
       const headerText = $(".avail-content-wrap").text();
-      const checkInMatch = headerText.match(/Check-in\s*-\s*(\d{2}[A-Z]{3}\d{2})/i);
-      const checkOutMatch = headerText.match(/Check-out\s*-\s*(\d{2}[A-Z]{3}\d{2})/i);
-      const checkIn = checkInMatch?.[1] ? this.parseVaxShortDate(checkInMatch[1]) : "";
-      const checkOut = checkOutMatch?.[1] ? this.parseVaxShortDate(checkOutMatch[1]) : "";
+      const checkInMatch = headerText.match(/Check-in\s*-\s*(\d{2}[A-Z]{3}\d{2})/i)?.[1];
+      const checkOutMatch = headerText.match(/Check-out\s*-\s*(\d{2}[A-Z]{3}\d{2})/i)?.[1];
+      if (!checkInMatch || !checkOutMatch) {
+        throw new Error("Failed to extract check-in/check-out dates from search results");
+      }
+      const checkIn = this.parseVaxShortDate(checkInMatch);
+      const checkOut = this.parseVaxShortDate(checkOutMatch);
 
-      // Find all hotel rows (rows with class 'room-repeater-visibility' contain the hotel info)
       const hotelRows = $("tr.room-repeater-visibility");
-      console.log(`Parsing ${hotelRows.length} hotel sections...`);
 
       hotelRows.each((_index, element) => {
         try {
@@ -471,19 +519,13 @@ export class VaxClient {
     }
   }
 
-  /**
-   * Parse a single hotel section from the HTML using Cheerio
-   * $hotelRow is the <tr> with class 'room-repeater-visibility'
-   */
-  private parseHotelSection($hotelRow: cheerio.Cheerio<any>, checkIn: string, checkOut: string): VaxHotelResult | null {
+  private parseHotelSection($hotelRow: cheerio.Cheerio<any>, checkIn: Date, checkOut: Date): VaxHotelResult | null {
     try {
-      // Find the hotel-info-wrapper within this row
       const $hotelInfo = $hotelRow.find(".hotel-info-wrapper");
       if (!$hotelInfo.length) {
         return null;
       }
 
-      // Extract hotel name - the link has the URL in the onclick attribute, not href
       const nameLink = $hotelInfo.find('a[onclick*="HotelInformation/Default.aspx"]').first();
       const name = nameLink.text().trim();
 
@@ -491,7 +533,6 @@ export class VaxClient {
         return null;
       }
 
-      // Extract hotel ID and other params from the onclick attribute
       const onclickAttr = nameLink.attr("onclick") || "";
       const hotelIdMatch = onclickAttr.match(/HotelId=(\d+)/);
       const hotelId = hotelIdMatch?.[1] || "";
@@ -505,12 +546,10 @@ export class VaxClient {
       const destCodeMatch = onclickAttr.match(/DestinationCode=([^&]+)/);
       const destinationCode = destCodeMatch?.[1] || "";
 
-      // Extract star rating - count the number of rating_ST images
       const rating = $hotelInfo.find(".rating_ST").length;
 
-      // Extract TripAdvisor rating and reviews
-      let tripAdvisorRating: number | undefined;
-      let tripAdvisorReviews: number | undefined;
+      let tripAdvisorRating: number | null = null;
+      let tripAdvisorReviews: number | null = null;
       const tripAdvisorImg = $hotelInfo.find('img[alt*="of 5 stars"]');
       if (tripAdvisorImg.length > 0) {
         const altText = tripAdvisorImg.attr("alt") || "";
@@ -529,19 +568,16 @@ export class VaxClient {
         }
       }
 
-      // Extract location
       const location = $hotelInfo.find(".hotel-location-info").first().text().trim();
 
-      // Extract distance from airport
-      let distanceFromAirport: number | undefined;
+      let distanceFromAirport: number | null = null;
       const distanceText = $hotelInfo.find("strong:contains('miles')").text();
       const distanceMatch = distanceText.match(/([\d.]+) miles/);
       if (distanceMatch?.[1]) {
         distanceFromAirport = parseFloat(distanceMatch[1]);
       }
 
-      // Extract cleaning badge (it's outside hotel-info-wrapper, so search in the entire row)
-      let cleaningBadge: string | undefined;
+      let cleaningBadge: string | null = null;
       const badgeButton = $hotelRow.find("button.cleaning-badge");
       if (badgeButton.length > 0) {
         const onclickAttr = badgeButton.attr("onclick") || "";
@@ -551,11 +587,10 @@ export class VaxClient {
         }
       }
 
-      // Parse room options from the next sibling rows
       const rooms = this.parseRoomOptions($hotelRow);
 
       const result: VaxHotelResult = {
-        hotelId,
+        id: hotelId,
         name,
         rating,
         location,
@@ -563,23 +598,13 @@ export class VaxClient {
         vendor,
         remoteSource,
         destinationCode,
+        tripAdvisorRating,
+        tripAdvisorReviews,
+        cleaningBadge,
+        distanceFromAirport,
         checkIn,
         checkOut,
       };
-
-      // Add optional properties only if they have values
-      if (tripAdvisorRating !== undefined) {
-        result.tripAdvisorRating = tripAdvisorRating;
-      }
-      if (tripAdvisorReviews !== undefined) {
-        result.tripAdvisorReviews = tripAdvisorReviews;
-      }
-      if (distanceFromAirport !== undefined) {
-        result.distanceFromAirport = distanceFromAirport;
-      }
-      if (cleaningBadge !== undefined) {
-        result.cleaningBadge = cleaningBadge;
-      }
 
       return result;
     } catch (error) {
@@ -588,14 +613,9 @@ export class VaxClient {
     }
   }
 
-  /**
-   * Parse room options from the rows following the hotel row
-   * $hotelRow is the <tr> with class 'room-repeater-visibility'
-   */
   private parseRoomOptions($hotelRow: cheerio.Cheerio<any>): VaxRoomOption[] {
     const rooms: VaxRoomOption[] = [];
 
-    // Find room rows by looking at the next sibling rows until we hit another hotel row
     let $nextRow = $hotelRow.next();
 
     while ($nextRow.length > 0 && !$nextRow.hasClass("room-repeater-visibility")) {
@@ -603,7 +623,6 @@ export class VaxClient {
 
       if ($roomWrapper.length > 0) {
         try {
-          // Extract room name - the link has the URL in the onclick attribute, not href
           const roomLink = $roomWrapper.find('a[onclick*="room="]').first();
           const onclickAttr = roomLink.attr("onclick") || "";
           const roomCodeMatch = onclickAttr.match(/room=([^&]+)/);
@@ -611,25 +630,21 @@ export class VaxClient {
           const name = roomLink.text().trim();
 
           if (!name) {
-            // Skip to next row if no room name found
             $nextRow = $nextRow.next();
             continue;
           }
 
-          // Extract price from the third column (hotel-room-col-3)
           const priceText = $nextRow.find(".hotel-room-col-3 strong").first().text();
           const priceMatch = priceText.match(/\$([0-9,]+\.\d{2})/);
           const totalPrice = priceMatch?.[1] ? parseFloat(priceMatch[1].replace(/,/g, "")) : 0;
 
-          // Extract price per person from the tooltip
-          let pricePerPerson: number | undefined;
+          let pricePerPerson: number | null = null;
           const perPersonText = $nextRow.find(".hotel-room-col-3").text();
           const perPersonMatch = perPersonText.match(/\$([0-9,]+\.\d{2}) per person/);
           if (perPersonMatch?.[1]) {
             pricePerPerson = parseFloat(perPersonMatch[1].replace(/,/g, ""));
           }
 
-          // Extract added values (promotions) from the second column
           const addedValues: string[] = [];
           $nextRow.find(".added-value-wrap button.link").each((_i: number, btn: any) => {
             const value = cheerio.load(btn).root().text().trim();
@@ -638,7 +653,6 @@ export class VaxClient {
             }
           });
 
-          // Extract value indicators from the second column (look for tooltip triggers)
           const valueIndicators: string[] = [];
           $nextRow.find('[id*="ValueTooltipTrigger"]').each((_i: number, span: any) => {
             const indicator = cheerio.load(span).root().text().trim();
@@ -651,18 +665,10 @@ export class VaxClient {
             code,
             name,
             totalPrice,
+            pricePerPerson,
+            addedValues,
+            valueIndicators,
           };
-
-          // Add optional properties only if they have values
-          if (pricePerPerson !== undefined) {
-            room.pricePerPerson = pricePerPerson;
-          }
-          if (addedValues.length > 0) {
-            room.addedValues = addedValues;
-          }
-          if (valueIndicators.length > 0) {
-            room.valueIndicators = valueIndicators;
-          }
 
           rooms.push(room);
         } catch (err) {
@@ -670,28 +676,22 @@ export class VaxClient {
         }
       }
 
-      // Move to the next row
       $nextRow = $nextRow.next();
     }
 
     return rooms;
   }
 
-  /**
-   * Parse VAX short date format to ISO string
-   * Handles formats like "10JAN26" -> "2026-01-10"
-   */
-  private parseVaxShortDate(dateStr: string): string {
-    if (!dateStr) return "";
+  private parseVaxShortDate(dateStr: string): Date {
+    if (!dateStr) throw new Error("Invalid date string");
 
     try {
-      // Format: DDMMMYY (e.g., "10JAN26")
       const dayMatch = dateStr.match(/^(\d{2})/);
       const monthMatch = dateStr.match(/[A-Z]{3}/);
       const yearMatch = dateStr.match(/(\d{2})$/);
 
       if (!dayMatch || !monthMatch || !yearMatch) {
-        return dateStr;
+        return new Date(dateStr);
       }
 
       const day = dayMatch[1];
@@ -715,14 +715,14 @@ export class VaxClient {
 
       const month = monthMap[monthStr] || "01";
 
-      return `${year}-${month}-${day}`;
+      return new Date(`${year}-${month}-${day}`);
     } catch (e) {
       console.error("Error parsing VAX short date:", e);
-      return dateStr;
+      return new Date(dateStr);
     }
   }
 
-  async extractLiveVendors(): Promise<VaxVendor[]> {
+  private async extractLiveVendors(): Promise<ISupplierVendor[]> {
     const searchUrl = "https://new.www.vaxvacationaccess.com/Search/Default.aspx";
     const searchGetResponse = await this.client.get<string>(searchUrl, {
       headers: {
@@ -733,11 +733,10 @@ export class VaxClient {
     return this.extractVendors(html);
   }
 
-  async extractVendors(html: string): Promise<VaxVendor[]> {
+  private async extractVendors(html: string): Promise<ISupplierVendor[]> {
     const $ = cheerio.load(html);
-    const vendors: VaxVendor[] = [];
+    const vendors: ISupplierVendor[] = [];
 
-    // Find the vendor select element by its specific ID
     const vendorSelect = $(
       "#ctl00_ctl00_ContentPlaceHolder_ContentPlaceHolder_scncc_ctl00_NavigationRepeater_ctl00_ctl00_SearchComponents_scc_rt_vendor",
     );
@@ -746,7 +745,6 @@ export class VaxClient {
       throw new Error("Vendor select element not found in HTML");
     }
 
-    // Extract all option elements
     vendorSelect.find("option").each((_index, element) => {
       const $option = $(element);
       const code = $option.attr("value");
@@ -754,130 +752,31 @@ export class VaxClient {
 
       if (code && name) {
         vendors.push({
-          code,
+          id: code,
           name,
         });
       }
     });
 
-    const sortedVendors = vendors.sort((a, b) => a.code.localeCompare(b.code));
+    const sortedVendors = vendors.sort((a, b) => a.id.localeCompare(b.id));
     const vendorsPath = new URL("./vendors.json", import.meta.url).pathname;
     await Bun.write(vendorsPath, JSON.stringify(sortedVendors, null, 2));
     return sortedVendors;
   }
 
-  async listCachedVendors(): Promise<VaxVendor[]> {
-    const vendorsPath = new URL("./vendors.json", import.meta.url).pathname;
-    const file = Bun.file(vendorsPath);
-    const vendors: VaxVendor[] = await file.json();
-    return vendors;
-  }
-
-  async listCachedOriginMarkets(vendorCode: string): Promise<VaxMarket[]> {
-    const marketsPath = new URL("./origin-markets.json", import.meta.url).pathname;
-    const file = Bun.file(marketsPath);
-    const markets: Record<string, VaxMarket[]> = await file.json();
-    return markets[vendorCode] || [];
-  }
-
-  async listCachedDestinationMarkets(vendorCode: string): Promise<VaxMarket[]> {
-    const marketsPath = new URL("./destination-markets.json", import.meta.url).pathname;
-    const file = Bun.file(marketsPath);
-    const markets: Record<string, VaxMarket[]> = await file.json();
-    return markets[vendorCode] || [];
-  }
-
-  async searchAllVendors(params: Omit<VaxSearchParams, "vendor" | "packageType">): Promise<VaxSearchResponse> {
-    await this.ensureLoggedIn();
-
-    try {
-      // Check database cache first
-      const cachedResults = await getCachedSearchResults(params);
-      if (cachedResults) {
-        console.log(`✓ Using cached multi-vendor search results from database`);
-        return {
-          success: true,
-          hotels: cachedResults,
-        };
-      }
-
-      console.log(`No cached results found, performing live multi-vendor search...`);
-      const vendors = await this.extractLiveVendors();
-
-      const allHotels: VaxHotelResult[] = [];
-
-      for (const vendor of vendors) {
-        console.log(`\nSearching vendor: ${vendor.name} (${vendor.code})`);
-
-        try {
-          const vendorParams: VaxSearchParams = {
-            ...params,
-            vendor: vendor.code,
-            packageType: "H02", // Default to hotel-only package
-          };
-
-          const searchResponse = await this.search(vendorParams);
-          if (!searchResponse.success) {
-            console.log(`  ⚠ Search failed for ${vendor.name}: ${searchResponse.error || "Unknown error"}`);
-            continue;
-          }
-
-          const hotelCount = searchResponse.hotels.length;
-          console.log(`  ✓ Found ${hotelCount} hotels from ${vendor.name}`);
-          allHotels.push(...searchResponse.hotels);
-
-          // Add a small delay between vendor searches to avoid rate limiting
-          if (vendor !== vendors[vendors.length - 1]) {
-            console.log("  ⏳ Waiting 2 seconds before next vendor...");
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-        } catch (vendorError) {
-          console.error(`  ✗ Error searching vendor ${vendor.name}:`, vendorError);
-          // Continue with next vendor even if one fails
-        }
-      }
-
-      console.log(`\n✅ Search complete! Found ${allHotels.length} total hotels across ${vendors.length} vendors`);
-
-      // Save aggregated results to database cache
-      await saveSearchResultsToCache(params, allHotels);
-
-      return {
-        success: true,
-        hotels: allHotels,
-      };
-    } catch (error) {
-      console.log("Error during multi-vendor search:");
-      console.error("Search all vendors error:", error);
-      return {
-        success: false,
-        hotels: [],
-        error: error instanceof Error ? error.message : "Unknown error occurred during multi-vendor search",
-      };
-    }
-  }
-
-  async saveSearchResultsToFile(hotels: VaxHotelResult[]): Promise<void> {
-    const filePath = new URL("./search-results.json", import.meta.url).pathname;
-    await Bun.write(filePath, JSON.stringify(hotels, null, 2));
-    console.log(`✓ Saved search results to ${filePath}`);
-  }
-
-  async loadSearchPage(): Promise<string> {
-    const searchUrl = "https://new.www.vaxvacationaccess.com/Search/Default.aspx";
-    const response = await this.client.get<string>(searchUrl);
-    this.cookieJar.setCookiesFromResponse(response);
-    return response.data;
-  }
-
-  async getOriginMarkets(vendorCode: string, packageCode: string, destinationCode = "", filterOrgs = "", plCode = ""): Promise<VaxMarket[]> {
+  private async getOriginMarkets(
+    vendorCode: string,
+    packageCode: string,
+    destinationCode = "",
+    filterOrgs = "",
+    plCode = "",
+  ): Promise<ISupplierMarket[]> {
     if (!this.isLoggedIn()) {
       throw new Error("Not logged in. Please call login() first.");
     }
 
     const url = "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetOriginMarkets";
 
-    // Build query string manually to ensure all params are included
     const params = new URLSearchParams();
     params.append("vendorCode", `"${vendorCode}"`);
     params.append("packageCode", `"${packageCode}"`);
@@ -900,12 +799,12 @@ export class VaxClient {
     });
 
     return response.data.d.map((market) => ({
-      code: market.C,
-      description: market.D,
+      id: market.C,
+      name: market.D,
     }));
   }
 
-  async getDestinationMarkets(
+  private async getDestinationMarkets(
     vendorCode: string,
     packageCode: string,
     originCode = "",
@@ -915,7 +814,7 @@ export class VaxClient {
     filterDests = "",
     plCode = "",
     supplierCode = "",
-  ): Promise<VaxMarket[]> {
+  ): Promise<ISupplierMarket[]> {
     if (!this.isLoggedIn()) {
       throw new Error("Not logged in. Please call login() first.");
     }
@@ -923,7 +822,6 @@ export class VaxClient {
     try {
       const url = "https://new.www.vaxvacationaccess.com/Search/RestoolConfiguration.asmx/GetDestinationMarkets";
 
-      // Build query string manually to ensure null values are preserved
       const params = new URLSearchParams();
       params.append("vendorCode", `"${vendorCode}"`);
       params.append("packageCode", `"${packageCode}"`);
@@ -950,35 +848,12 @@ export class VaxClient {
       });
 
       return response.data.d.map((market) => ({
-        code: market.C,
-        description: market.D,
+        id: market.C,
+        name: market.D,
       }));
     } catch (error) {
       console.error("Error fetching destination markets:", error);
       throw error;
     }
-  }
-
-  async cacheMarketsToFile(): Promise<void> {
-    const vendors = await this.listCachedVendors();
-    const originMarkets = new Map<string, VaxMarket[]>();
-    const destinationMarkets = new Map<string, VaxMarket[]>();
-    for (const vendor of vendors) {
-      console.log(`\nFetching markets for vendor: ${vendor.name} (${vendor.code})`);
-      const origins = await this.getOriginMarkets(vendor.code, "H02"); // H02 = Hotel package
-      const destinations = await this.getDestinationMarkets(vendor.code, "H02");
-
-      originMarkets.set(vendor.code, origins);
-      destinationMarkets.set(vendor.code, destinations);
-    }
-
-    const originsPath = new URL("./origin-markets.json", import.meta.url).pathname;
-    const destinationsPath = new URL("./destination-markets.json", import.meta.url).pathname;
-
-    const originsFile = Bun.file(originsPath);
-    const destinationsFile = Bun.file(destinationsPath);
-
-    await originsFile.write(JSON.stringify(Object.fromEntries(originMarkets), null, 2));
-    await destinationsFile.write(JSON.stringify(Object.fromEntries(destinationMarkets), null, 2));
   }
 }
