@@ -9,3 +9,5 @@ dist/
 src/db/generated
 *.db
 *.db-journal
+
+.wrangler-output/

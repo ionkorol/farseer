@@ -179,7 +179,7 @@ class VaxPlaywrightDebugger {
     try {
       await this.page.waitForNavigation({ timeout: 10000 });
       console.log("✓ Navigation occurred");
-    } catch (error) {
+    } catch {
       console.log("⚠ No navigation detected (might be AJAX)");
     }
 
