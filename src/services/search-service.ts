@@ -1,6 +1,7 @@
 import type { ISupplierSearchParams } from "@/suppliers/supplier-interface.js";
 import { type $Enums, prisma, type Hotel, type Room } from "@/db/index.js";
 import { createSupplierClient } from "@/suppliers/supplier-factory.js";
+import { EventEmitter } from "node:events";
 
 export interface SearchRequestResponse {
   requestId: string;
@@ -15,8 +16,13 @@ export interface SearchRequestResponse {
   createdAt: string;
   updatedAt: string;
 }
+interface SearchEvents {
+  [key: `search:${string}`]: [SearchRequestResponse];
+}
 
 export class SearchService {
+  private emitter = new EventEmitter<SearchEvents>();
+
   public async createSearchRequest(params: ISupplierSearchParams): Promise<string> {
     const cacheKey = this.generateCacheKey(params);
 
@@ -54,8 +60,8 @@ export class SearchService {
     return searchRequest.id;
   }
 
-  public async getSearchRequest(requestId: string): Promise<SearchRequestResponse | null> {
-    const searchRequest = await prisma.searchRequest.findUnique({
+  public async getSearchRequest(requestId: string): Promise<SearchRequestResponse> {
+    const searchRequest = await prisma.searchRequest.findUniqueOrThrow({
       where: { id: requestId },
       include: {
         hotels: {
@@ -65,10 +71,6 @@ export class SearchService {
         },
       },
     });
-
-    if (!searchRequest) {
-      return null;
-    }
 
     const response: SearchRequestResponse = {
       requestId: searchRequest.id,
@@ -89,6 +91,14 @@ export class SearchService {
     return response;
   }
 
+  public addSearchUpdateListener(requestId: string, listener: (data: SearchRequestResponse) => void) {
+    this.emitter.addListener(`search:${requestId}`, listener);
+  }
+
+  public removeAllSearchUpdateListeners(requestId: string) {
+    this.emitter.removeAllListeners(`search:${requestId}`);
+  }
+
   private async processSearch(requestId: string, params: ISupplierSearchParams): Promise<void> {
     try {
       const searchRequest = await prisma.searchRequest.update({
@@ -101,7 +111,19 @@ export class SearchService {
 
       const supplierClients = searchRequest.suppliers.map((name) => createSupplierClient(name));
 
-      for (const supplierClient of supplierClients) {
+      for (let i = 0; i < supplierClients.length; i++) {
+        const supplierClient = supplierClients[i];
+        if (!supplierClient) continue;
+
+        await prisma.searchRequest.update({
+          where: { id: requestId },
+          data: {
+            progress: `Searching supplier ${i + 1} of ${supplierClients.length}...`,
+          },
+        });
+
+        this.emitter.emit(`search:${requestId}`, await this.getSearchRequest(requestId));
+
         const searchResponse = await supplierClient.search(params);
         if (!searchResponse.success) {
           throw new Error(`Supplier search failed: ${searchResponse.error}`);
@@ -120,6 +142,14 @@ export class SearchService {
         });
       }
 
+      await prisma.searchRequest.update({
+        where: { id: requestId },
+        data: {
+          status: "COMPLETED",
+          progress: "Search completed",
+        },
+      });
+
       console.log(`[SearchService] Search request ${requestId} marked as completed`);
     } catch (error) {
       console.error(`[SearchService] Search request ${requestId} failed:`, error);
@@ -130,6 +160,8 @@ export class SearchService {
           error: error instanceof Error ? error.message : String(error),
         },
       });
+    } finally {
+      this.emitter.emit(`search:${requestId}`, await this.getSearchRequest(requestId));
     }
   }
 

@@ -1,4 +1,4 @@
-import { SearchService } from "@/services/search-service.js";
+import { SearchService, type SearchRequestResponse } from "@/services/search-service.js";
 import index from "./index.html";
 import { VendorService } from "./services/vendor-service.js";
 import { MarketService } from "./services/market-service.js";
@@ -82,30 +82,43 @@ const server = Bun.serve({
         });
       }
     },
-    "/api/search/:requestId": async (req) => {
+    "/api/search/:requestId/stream": async (req) => {
       try {
-        const url = new URL(req.url);
-        const pathParts = url.pathname.split("/");
-        const requestId = pathParts[pathParts.length - 1];
-
-        if (!requestId) {
-          return new Response(JSON.stringify({ error: "Request ID is required" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
+        const requestId = req.params.requestId;
         const searchRequest = await searchService.getSearchRequest(requestId);
 
-        if (!searchRequest) {
-          return new Response(JSON.stringify({ error: "Search request not found" }), {
-            status: 404,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
+        const stream = new ReadableStream({
+          start(controller) {
+            const sendEvent = (data: SearchRequestResponse) => {
+              controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
+            };
 
-        return new Response(JSON.stringify(searchRequest), {
-          headers: { "Content-Type": "application/json" },
+            sendEvent(searchRequest);
+
+            searchService.addSearchUpdateListener(requestId, (data) => {
+              sendEvent(data);
+
+              if (data.status === "COMPLETED" || data.status === "FAILED") {
+                controller.close();
+              }
+            });
+
+            if (searchRequest.status === "COMPLETED" || searchRequest.status === "FAILED") {
+              searchService.removeAllSearchUpdateListeners(requestId);
+              controller.close();
+            }
+          },
+          cancel() {
+            searchService.removeAllSearchUpdateListeners(requestId);
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
         });
       } catch (error) {
         return new Response(JSON.stringify({ error: String(error) }), {

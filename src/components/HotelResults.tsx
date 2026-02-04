@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import type { SearchRequestResponse } from "../services/search-service.js";
 import "./HotelResults.css";
@@ -7,37 +6,43 @@ export function HotelResults() {
   const urlParams = new URLSearchParams(window.location.search);
   const requestId = urlParams.get("requestId");
 
-  // Client-side filter state
   const [sortBy, setSortBy] = useState<"price" | "priceDesc" | "rating" | "name" | "tripadvisor">("price");
   const [filterRating, setFilterRating] = useState(0);
   const [maxPrice, setMaxPrice] = useState(Infinity);
 
-  // Long polling with TanStack Query
-  const {
-    data: searchRequest,
-    isLoading,
-    error,
-  } = useQuery<SearchRequestResponse>({
-    queryKey: ["search", requestId],
-    queryFn: async () => {
-      const response = await fetch(`/api/search/${requestId}`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch search status");
+  const [searchRequest, setSearchRequest] = useState<SearchRequestResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!requestId) return;
+
+    const eventSource = new EventSource(`/api/search/${requestId}/stream`);
+
+    const listener = (event: MessageEvent) => {
+      const data = JSON.parse(event.data) as SearchRequestResponse;
+      setSearchRequest(data);
+      if (data.status === "COMPLETED" || data.status === "FAILED") {
+        eventSource.close();
+        setIsLoading(false);
       }
-      return response.json();
-    },
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      // Stop polling when search is completed or failed
-      if (data?.status === "COMPLETED" || data?.status === "FAILED") {
-        return false;
-      }
-      // Poll every 2 seconds while pending/in_progress
-      return 2000;
-    },
-    retry: 3,
-    enabled: !!requestId,
-  });
+    };
+
+    eventSource.addEventListener("open", () => {
+      console.log("Connected to search updates stream");
+    });
+    eventSource.addEventListener("message", listener);
+    eventSource.addEventListener("error", (err) => {
+      console.error("Error in search updates stream", err);
+      setError(new Error("An error occurred while receiving search updates"));
+      setIsLoading(false);
+      eventSource.close();
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [requestId]);
 
   // Calculate prices for useEffect (safe to run even when no data)
   const hotels = searchRequest?.hotels || [];
